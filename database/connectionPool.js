@@ -2,7 +2,7 @@ const { Sequelize } = require("sequelize");
 const config = require("../config/config");
 
 // Optimized connection pool for performance
-const sequelize = new Sequelize(config.POSTGRES_URI, {
+const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./chatbot.db",
   logging: false, // Disable logging in production for performance
