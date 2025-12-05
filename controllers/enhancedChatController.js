@@ -375,7 +375,11 @@ class EnhancedChatController {
   // Message relay with enhanced features
   initializeMessageRelay() {
     this.bot.on("message", async (msg) => {
-      if (!msg.text || msg.text.startsWith("/") || msg.text.includes("🔍") || msg.text.includes("❌") || msg.text.includes("📊") || msg.text.includes("⚙️")) return;
+      if (!msg.text || msg.text.startsWith("/")) return;
+      
+      // Skip button commands
+      const buttonCommands = ["🔍 Find Partner", "❌ Stop Chat", "📊 My Stats", "⚙️ Settings", "🔄 Next Partner", "🔗 Share Profile", "👤 Update Gender", "🎂 Update Age", "📊 View Stats", "🔙 Back to Menu", "📋 Rules", "🆔 My ID", "👤 My Profile", "👨 Male", "👩 Female", "🌈 Other"];
+      if (buttonCommands.includes(msg.text)) return;
 
       const chatId = msg.chat.id;
       const userId = msg.from.id;
