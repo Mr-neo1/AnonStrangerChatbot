@@ -6,7 +6,8 @@ const keyboards = {
       keyboard: [
         [{ text: "🔍 Find Partner" }, { text: "❌ Stop Chat" }],
         [{ text: "📊 My Stats" }, { text: "⚙️ Settings" }],
-        [{ text: "📋 Rules" }, { text: "🆔 My ID" }]
+        [{ text: "👤 My Profile" }, { text: "📋 Rules" }],
+        [{ text: "🆔 My ID" }]
       ],
       resize_keyboard: true,
       persistent: true
@@ -31,6 +32,18 @@ const keyboards = {
       keyboard: [
         [{ text: "🔄 Next Partner" }, { text: "❌ Stop Chat" }],
         [{ text: "🔗 Share Profile" }, { text: "📊 My Stats" }]
+      ],
+      resize_keyboard: true,
+      persistent: true
+    }
+  },
+
+  // Settings keyboard
+  settingsMenu: {
+    reply_markup: {
+      keyboard: [
+        [{ text: "👤 Update Gender" }, { text: "🎂 Update Age" }],
+        [{ text: "📊 View Stats" }, { text: "🔙 Back to Menu" }]
       ],
       resize_keyboard: true,
       persistent: true

@@ -116,14 +116,14 @@ class MemoryRedis {
 
   // Multi/pipeline operations (simplified)
   multi() {
+    const commands = [];
     return {
-      commands: [],
-      set: (key, value) => { this.commands.push(['set', key, value]); return this; },
-      expire: (key, seconds) => { this.commands.push(['expire', key, seconds]); return this; },
+      set: (key, value) => { commands.push(['set', key, value]); return this; },
+      expire: (key, seconds) => { commands.push(['expire', key, seconds]); return this; },
       exec: async () => {
         const results = [];
-        for (const [cmd, ...args] of this.commands) {
-          results.push(await this[cmd](...args));
+        for (const [cmd, ...args] of commands) {
+          results.push(await memoryRedis[cmd](...args));
         }
         return results;
       }

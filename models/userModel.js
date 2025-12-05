@@ -24,9 +24,21 @@ const User = sequelize.define("User", {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  totalChats: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  dailyStreak: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  lastActiveDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+  },
 });
 
 // For local dev; in production, use migrations.
-User.sync();
+User.sync({ force: true }); // Force recreate table with new schema
 
 module.exports = User;

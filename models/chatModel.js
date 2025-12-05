@@ -21,6 +21,6 @@ const Chat = sequelize.define("Chat", {
 });
 
 // For local dev; in production, use migrations.
-Chat.sync();
+Chat.sync({ force: true });
 
 module.exports = Chat;
