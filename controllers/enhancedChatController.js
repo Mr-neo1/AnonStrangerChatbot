@@ -427,14 +427,23 @@ class EnhancedChatController {
 
       // Forward message to partner
       const partnerId = await redisClient.get("pair:" + chatId);
+      console.log(`Debug: chatId=${chatId}, partnerId=${partnerId}, text="${text}"`);
+      
       if (partnerId && partnerId !== chatId.toString()) {
         try {
           await SessionManager.markChatActive(chatId);
           await SessionManager.markChatActive(partnerId);
           await this.bot.sendMessage(partnerId, text);
+          console.log(`Message sent from ${chatId} to ${partnerId}: "${text}"`);
         } catch (error) {
           console.error("Error relaying message:", error);
         }
+      } else {
+        console.log(`No partner found for ${chatId} or same chatId`);
+        this.bot.sendMessage(chatId, "❌ You're not connected to anyone. Use 🔍 Find Partner to start chatting.", {
+          parse_mode: "Markdown",
+          ...keyboards.mainMenu
+        });
       }
     });
   }
@@ -475,6 +484,7 @@ class EnhancedChatController {
       // Valid partner found
       await redisClient.set("pair:" + chatId, partnerId);
       await redisClient.set("pair:" + partnerId, chatId);
+      console.log(`Paired: ${chatId} <-> ${partnerId}`);
       
       // Mark as recent partners (expires in 1 hour)
       await redisClient.setEx(`recent:${chatId}:${partnerId}`, 3600, "1");
@@ -495,6 +505,7 @@ class EnhancedChatController {
     } else {
       // No valid partner found, add to waiting queue
       await redisClient.lPush("waiting", chatId.toString());
+      console.log(`Added ${chatId} to waiting queue`);
     }
   }
   
