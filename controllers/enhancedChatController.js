@@ -374,12 +374,21 @@ class EnhancedChatController {
 
   // Message relay with enhanced features
   initializeMessageRelay() {
+    // List of exact button texts to ignore
+    const buttonTexts = [
+      "🔍 Find Partner", "❌ Stop Chat", "📊 My Stats", 
+      "⚙️ Settings", "📋 Rules", "🆔 My ID", "👤 My Profile",
+      "🔄 Next Partner", "🔗 Share Profile",
+      "👨 Male", "👩 Female", "🌈 Other",
+      "👤 Update Gender", "🎂 Update Age", "📊 View Stats", "🔙 Back to Menu"
+    ];
+
     this.bot.on("message", async (msg) => {
+      // Skip if no text or is a command
       if (!msg.text || msg.text.startsWith("/")) return;
       
-      // Skip button commands
-      const buttonCommands = ["🔍 Find Partner", "❌ Stop Chat", "📊 My Stats", "⚙️ Settings", "🔄 Next Partner", "🔗 Share Profile", "👤 Update Gender", "🎂 Update Age", "📊 View Stats", "🔙 Back to Menu", "📋 Rules", "🆔 My ID", "👤 My Profile", "👨 Male", "👩 Female", "🌈 Other"];
-      if (buttonCommands.includes(msg.text)) return;
+      // Skip if exact button text match
+      if (buttonTexts.includes(msg.text)) return;
 
       const chatId = msg.chat.id;
       const userId = msg.from.id;

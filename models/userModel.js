@@ -39,6 +39,6 @@ const User = sequelize.define("User", {
 });
 
 // For local dev; in production, use migrations.
-User.sync({ force: true }); // Force recreate table with new schema
+User.sync({ alter: true }); // Update table schema
 
 module.exports = User;

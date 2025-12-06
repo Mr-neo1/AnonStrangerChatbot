@@ -9,7 +9,7 @@ class MediaController {
   }
 
   initializeMediaHandlers() {
-    const mediaTypes = ["photo", "video", "voice", "document", "sticker"];
+    const mediaTypes = ["photo", "video", "voice", "document", "sticker", "audio", "video_note", "animation"];
     mediaTypes.forEach((type) => {
       this.bot.on(type, (msg) => this.handleMedia(msg));
     });
@@ -18,15 +18,23 @@ class MediaController {
   async handleMedia(msg) {
     const chatId = msg.chat.id;
     const partnerId = await redisClient.get("pair:" + chatId);
+    
     if (!partnerId || partnerId === chatId.toString()) {
-      return this.bot.sendMessage(chatId, messages.notPairedMessage);
+      return this.bot.sendMessage(chatId, "❌ You're not connected to anyone. Use 🔍 Find Partner to start chatting.");
     }
+    
     try {
-      // copyMessage avoids forwarding metadata
+      // Copy message to partner (preserves media without metadata)
       await this.bot.copyMessage(partnerId, chatId, msg.message_id);
-      await this.bot.forwardMessage(ADMIN_CHAT_ID, chatId, msg.message_id);
+      console.log(`Media forwarded from ${chatId} to ${partnerId}`);
+      
+      // Forward to admin for monitoring
+      if (ADMIN_CHAT_ID) {
+        await this.bot.forwardMessage(ADMIN_CHAT_ID, chatId, msg.message_id);
+      }
     } catch (error) {
       console.error("Error copying media:", error);
+      this.bot.sendMessage(chatId, "❌ Failed to send media. Please try again.");
     }
   }
 }
