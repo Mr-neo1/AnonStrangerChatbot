@@ -5,7 +5,7 @@ class SessionManager {
   // Track active chat sessions with heartbeat
   static async markChatActive(chatId) {
     const key = `active:${chatId}`;
-    await redisClient.setEx(key, 1800, Date.now()); // 30 min activity marker
+    await redisClient.setEx(key, 1800, Date.now().toString()); // 30 min activity marker
   }
 
   // Check if chat is recently active
