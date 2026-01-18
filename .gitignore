@@ -10,6 +10,7 @@ yarn-error.log*
 .env.development
 .env.test
 .env.production.local
+.env.production
 
 # Database files
 *.db
@@ -27,6 +28,10 @@ combined.log
 # Runtime data
 pids/
 *.pid
+
+# Temporary files
+temp/
+*.tmp
 *.seed
 *.pid.lock
 

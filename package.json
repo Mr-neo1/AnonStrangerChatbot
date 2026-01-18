@@ -2,22 +2,33 @@
   "name": "telegram-anonymous-chat-bot",
   "version": "2.0.0",
   "description": "Enhanced Telegram Anonymous Chat Bot with Custom UI",
-  "main": "bot.js",
+  "main": "bots.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js",
-    "production": "NODE_ENV=production node bot.js",
-    "deploy": "bash deploy.sh",
-    "test": "node test-bot.js"
+    "start": "node bots.js",
+    "dev": "NODE_ENV=development node bots.js",
+    "admin": "node server.js",
+    "cluster": "pm2 start ecosystem.config.js --env production",
+    "cluster:dev": "pm2 start ecosystem.config.js --env development",
+    "stop": "pm2 stop all",
+    "restart": "pm2 restart all",
+    "reload": "pm2 reload all",
+    "status": "pm2 status",
+    "logs": "pm2 logs --lines 100",
+    "monit": "pm2 monit",
+    "delete": "pm2 delete all",
+    "init-schema": "node scripts/run-init-schema.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "cookie-parser": "^1.4.6",
     "node-telegram-bot-api": "^0.61.0",
     "pg": "^8.11.1",
     "redis": "^4.6.10",
     "sequelize": "^6.32.1",
     "sqlite3": "^5.1.6",
-    "sharp": "^0.33.0"
+    "sharp": "^0.33.0",
+    "bull": "^4.11.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

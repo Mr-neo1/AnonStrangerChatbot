@@ -1,5 +1,6 @@
 // Smart session management to prevent chat disruption
 const { redisClient } = require("../database/redisClient");
+const { scanKeys } = require("../utils/redisScanHelper");
 
 class SessionManager {
   // Track active chat sessions with heartbeat
@@ -22,7 +23,10 @@ class SessionManager {
   // Extend session for active chats only
   static async extendActiveChats() {
     try {
-      const pairKeys = await redisClient.keys('pair:*');
+      // Use SCAN instead of KEYS for better performance
+      const pattern = 'pair:*';
+      const pairKeys = await scanKeys(redisClient, pattern, 100);
+      
       const pipeline = redisClient.multi();
       
       for (const pairKey of pairKeys) {
@@ -46,7 +50,10 @@ class SessionManager {
   // Clean only truly abandoned sessions (no activity for 2+ hours)
   static async cleanAbandonedSessions() {
     try {
-      const pairKeys = await redisClient.keys('pair:*');
+      // Use SCAN instead of KEYS for better performance
+      const pattern = 'pair:*';
+      const pairKeys = await scanKeys(redisClient, pattern, 100);
+      
       const toDelete = [];
       
       for (const pairKey of pairKeys) {
@@ -64,7 +71,12 @@ class SessionManager {
       }
       
       if (toDelete.length > 0) {
-        await redisClient.del(...toDelete);
+        // Delete in batches
+        const batchSize = 100;
+        for (let i = 0; i < toDelete.length; i += batchSize) {
+          const batch = toDelete.slice(i, i + batchSize);
+          await redisClient.del(...batch).catch(() => {});
+        }
         console.log(`Cleaned ${toDelete.length} abandoned sessions`);
       }
     } catch (error) {

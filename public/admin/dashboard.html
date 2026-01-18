@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; }
+    .pill { border: 1px solid #1f2937; background: #0b1220; border-radius: 9999px; padding: 6px 12px; }
+    .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-6">
+    <header class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-semibold">Admin Dashboard</h1>
+        <p class="text-slate-400 text-sm">Realtime overview, broadcasts, settings</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="refreshBtn" class="pill text-sm">Refresh</button>
+        <button id="logoutBtn" class="pill text-sm text-red-300">Logout</button>
+      </div>
+    </header>
+
+    <section class="card p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-3">Overview</h2>
+      <div class="grid-auto" id="overviewCards"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Users</h2>
+        <span class="text-xs text-slate-400" id="usersMeta"></span>
+      </div>
+      <div class="grid-auto" id="userCards"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Broadcasts</h2>
+        <span class="text-xs text-slate-400" id="broadcastMeta"></span>
+      </div>
+      <form id="broadcastForm" class="space-y-3">
+        <textarea id="broadcastMessage" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm" rows="3" placeholder="Message to broadcast"></textarea>
+        <div class="flex items-center gap-3 text-sm">
+          <button type="submit" class="pill bg-indigo-600 text-white border-indigo-500">Queue Broadcast</button>
+          <span id="broadcastStatus" class="text-xs text-slate-400"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">💎 VIP Plans</h2>
+        <span class="text-xs text-slate-400">Dynamic pricing</span>
+      </div>
+      <div id="vipPlansList" class="space-y-3"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">🔒 Lock Chat Pricing</h2>
+        <span class="text-xs text-slate-400">Per minute pricing</span>
+      </div>
+      <div id="lockPricingList" class="space-y-3"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">📢 Required Channels</h2>
+        <span class="text-xs text-slate-400">For promotions</span>
+      </div>
+      <div id="requiredChannelsList" class="space-y-3"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">🤖 Bot Management</h2>
+        <span class="text-xs text-slate-400">Add/remove bots</span>
+      </div>
+      <div id="botManagement" class="space-y-3">
+        <div class="flex items-center gap-3">
+          <input type="text" id="newBotToken" placeholder="Bot Token (1234567890:ABC...)" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm" />
+          <button onclick="addBot()" class="pill bg-green-600 text-white border-green-500">Add Bot</button>
+        </div>
+        <div id="botsList" class="space-y-2"></div>
+      </div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Settings</h2>
+        <span class="text-xs text-slate-400">Other config</span>
+      </div>
+      <div class="space-y-3" id="settingsList"></div>
+    </section>
+  </div>
+
+  <script type="module" src="/js/admin-app.js"></script>
+</body>
+</html>

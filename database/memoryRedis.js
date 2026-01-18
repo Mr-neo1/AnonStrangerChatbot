@@ -11,6 +11,7 @@ class MemoryRedis {
   async set(key, value, options = {}) {
     this.data.set(key, value);
     if (options.EX) {
+      this.expirations.set(key, options.EX);
       setTimeout(() => {
         this.data.delete(key);
         this.expirations.delete(key);
@@ -46,6 +47,7 @@ class MemoryRedis {
 
   async expire(key, seconds) {
     if (this.data.has(key)) {
+      this.expirations.set(key, seconds);
       setTimeout(() => {
         this.data.delete(key);
         this.expirations.delete(key);

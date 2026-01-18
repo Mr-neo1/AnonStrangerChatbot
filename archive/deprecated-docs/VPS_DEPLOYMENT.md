@@ -74,12 +74,16 @@ pm2 startup
 
 Create `.env.production`:
 ```
-BOT_TOKEN=8176339587:AAGDG3YJon31xb-U4hp3lF2MxuyJ4mPgsPk
-DATABASE_URL=postgresql://chatbot_user:your_secure_password@localhost:5432/chatbot_db
+# Comma-separated list of bot tokens for multi-bot support
+BOT_TOKENS=token1,token2
+BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN_HERE
+DATABASE_URL=postgresql://chatbot_user:YOUR_DB_PASSWORD@localhost:5432/chatbot_db
 REDIS_URL=redis://localhost:6379
-ADMIN_CHAT_ID=-1002355067849
-REQUIRED_CHANNEL_1=@Stranger_Chatanonstrangerchat
-REQUIRED_CHANNEL_2=@Informationchannelxyz
+ADMIN_CHAT_ID=YOUR_ADMIN_CHAT_ID
+REQUIRED_CHANNEL_1=@your_channel_1
+REQUIRED_CHANNEL_2=@your_channel_2
+# NOTE: Runtime model.sync has been removed entirely from the codebase to prevent automatic schema changes in production.
+# and can modify existing DB tables. Keep it unset or false in production.
 NODE_ENV=production
 ```
 

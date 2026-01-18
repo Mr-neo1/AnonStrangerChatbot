@@ -18,9 +18,13 @@ const Chat = sequelize.define("Chat", {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
   },
+}, {
+  tableName: 'Chats',
+  freezeTableName: true,
+  timestamps: true,
 });
 
-// For local dev; in production, use migrations.
-Chat.sync({ alter: true });
+// Runtime schema sync removed. Use offline migrations to alter production schemas.
+
 
 module.exports = Chat;

@@ -1,5 +1,6 @@
 // Performance optimization utilities
 const { redisClient } = require("../database/redisClient");
+const { scanKeys } = require("../utils/redisScanHelper");
 
 // Cache frequently accessed data
 const cache = {
@@ -45,19 +46,25 @@ const rateLimiter = {
 const cleanup = {
   async cleanInactiveData() {
     try {
-      // Only clean waiting queue duplicates (safe)
-      const waiting = await redisClient.lRange('waiting', 0, -1);
+// Only clean queue duplicates (safe) for both VIP and general queues
+    const keysHelper = require('../utils/redisKeys');
+    const botId = require('../config/config').BOT_ID || 'default';
+    const queueKeys = [keysHelper.QUEUE_VIP_KEY(botId), keysHelper.QUEUE_GENERAL_KEY(botId), 'queue:vip', 'queue:general'];
+    for (const key of queueKeys) {
+      const waiting = await redisClient.lRange(key, 0, -1);
       const unique = [...new Set(waiting)];
-      
       if (waiting.length !== unique.length) {
-        await redisClient.del('waiting');
+        await redisClient.del(key);
         if (unique.length > 0) {
-          await redisClient.lPush('waiting', ...unique);
+          await redisClient.lPush(key, ...unique);
         }
       }
+    }
       
-      // Clean old rate limit keys only (safe)
-      const rateLimitKeys = await redisClient.keys('rate:*');
+      // Clean old rate limit keys only (safe) - Use SCAN instead of KEYS
+      const pattern = 'rate:*';
+      const rateLimitKeys = await scanKeys(redisClient, pattern, 100);
+      
       const pipeline = redisClient.multi();
       
       for (const key of rateLimitKeys) {
@@ -77,7 +84,10 @@ const cleanup = {
   // Smart session management - extend active chats
   async extendActiveSessions() {
     try {
-      const pairKeys = await redisClient.keys('pair:*');
+      // Use SCAN instead of KEYS for better performance
+      const pattern = 'pair:*';
+      const pairKeys = await scanKeys(redisClient, pattern, 100);
+      
       const pipeline = redisClient.multi();
       
       for (const key of pairKeys) {

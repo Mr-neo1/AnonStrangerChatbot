@@ -24,10 +24,9 @@ const enhancedMessages = {
     "🔄 Use *Next Partner* to find someone new\n\n" +
     "✨ _Enjoy your conversation!_",
 
-  partnerLeft: "👋 *Partner Left*\n\n" +
-    "😔 Your chat partner has disconnected\n" +
-    "🔍 Tap *Find Partner* to meet someone new!\n\n" +
-    "⭐ _Rate your experience below:_",
+  partnerLeft: "👋 Partner Left\n\n" +
+    "🔍 Tap Find Partner to meet someone new!\n\n" +
+    "⭐️ Rate Ex-Partner:",
 
   chatEnded: "✅ *Chat Ended*\n\n" +
     "🙏 Thanks for using Anonymous Chat!\n" +

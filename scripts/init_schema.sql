@@ -1,0 +1,117 @@
+-- One-time schema initialization for the chatbot application
+-- Safe to run multiple times: uses CREATE TABLE IF NOT EXISTS
+
+-- Core
+CREATE TABLE IF NOT EXISTS Chats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user1 INTEGER NOT NULL,
+  user2 INTEGER NOT NULL,
+  active INTEGER DEFAULT 1,
+  startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Lock / disconnect history
+CREATE TABLE IF NOT EXISTS Locks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chatId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  durationMinutes INTEGER NOT NULL,
+  startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expiresAt DATETIME,
+  starsPaid INTEGER,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- VIP subscriptions
+CREATE TABLE IF NOT EXISTS VipSubscriptions (
+  userId INTEGER PRIMARY KEY,
+  expiresAt DATETIME NOT NULL,
+  source TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Payments / star transactions
+CREATE TABLE IF NOT EXISTS StarTransactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  telegramChargeId TEXT UNIQUE NOT NULL,
+  amount INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  payload TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Generic payments table (optional)
+CREATE TABLE IF NOT EXISTS Payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER,
+  amount INTEGER,
+  currency TEXT,
+  payload TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Referrals
+CREATE TABLE IF NOT EXISTS Referrals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  inviterId INTEGER NOT NULL,
+  invitedId INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Affiliate rewards
+CREATE TABLE IF NOT EXISTS AffiliateRewards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  vipDaysGranted INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'affiliate_payment',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Bans / moderation
+CREATE TABLE IF NOT EXISTS Bans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  reason TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Reports
+CREATE TABLE IF NOT EXISTS Reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reporterId INTEGER,
+  reportedId INTEGER,
+  chatId INTEGER,
+  reason TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Optional multi-bot metadata (additive only)
+CREATE TABLE IF NOT EXISTS Bots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bot_token_hash TEXT UNIQUE,
+  bot_name TEXT,
+  bot_index INTEGER,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_chats_user1 ON Chats(user1);
+CREATE INDEX IF NOT EXISTS idx_chats_user2 ON Chats(user2);
+CREATE INDEX IF NOT EXISTS idx_locks_chatId ON Locks(chatId);
+CREATE INDEX IF NOT EXISTS idx_vip_userId ON VipSubscriptions(userId);
+CREATE INDEX IF NOT EXISTS idx_startransactions_userId ON StarTransactions(userId);
+CREATE INDEX IF NOT EXISTS idx_referrals_inviter ON Referrals(inviterId);
+CREATE INDEX IF NOT EXISTS idx_affiliate_user ON AffiliateRewards(userId);
+CREATE INDEX IF NOT EXISTS idx_bans_user ON Bans(userId);
+CREATE INDEX IF NOT EXISTS idx_reports_reported ON Reports(reportedId);
+CREATE INDEX IF NOT EXISTS idx_bots_index ON Bots(bot_index);

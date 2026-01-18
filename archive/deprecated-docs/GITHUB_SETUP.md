@@ -53,12 +53,12 @@ chmod +x deploy.sh
 
 Edit `.env` on VPS:
 ```env
-BOT_TOKEN=8176339587:AAGDG3YJon31xb-U4hp3lF2MxuyJ4mPgsPk
-DATABASE_URL=postgresql://chatbot_user:chatbot_secure_2024@localhost:5432/chatbot_db
+BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN_HERE
+DATABASE_URL=postgresql://chatbot_user:YOUR_DB_PASSWORD@localhost:5432/chatbot_db
 REDIS_URL=redis://localhost:6379
-ADMIN_CHAT_ID=-1002355067849
-REQUIRED_CHANNEL_1=@Stranger_Chatanonstrangerchat
-REQUIRED_CHANNEL_2=@Informationchannelxyz
+ADMIN_CHAT_ID=YOUR_ADMIN_CHAT_ID
+REQUIRED_CHANNEL_1=@your_channel_1
+REQUIRED_CHANNEL_2=@your_channel_2
 NODE_ENV=production
 ```
 

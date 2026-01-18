@@ -10,6 +10,7 @@ A feature-rich Telegram bot that connects strangers for anonymous conversations 
 - **Profile Management** - Gender and age-based matching
 - **Media Forwarding** - All media forwarded to admin channel
 - **Admin Controls** - Ban/unban users, broadcast messages
+- **Admin Dashboard** - Web-based configuration management (no restart required)
 
 ### 🎨 Enhanced UI/UX
 - **Custom Keyboards** - Interactive buttons for all actions
@@ -23,6 +24,12 @@ A feature-rich Telegram bot that connects strangers for anonymous conversations 
 - **Media Compression** - 30-35% bandwidth reduction
 - **Connection Pooling** - Optimized database performance
 - **Memory Optimization** - Efficient Redis usage
+
+### 💎 Monetization Features
+- **VIP Subscriptions** - Premium features with Telegram Stars
+- **Lock Chat Sessions** - Pay to extend conversations
+- **Affiliate System** - Earn commission from referrals
+- **Referral Rewards** - VIP days for inviting friends
 
 ### 📊 User Engagement
 - **Daily Streaks** - Reward consecutive usage (coming soon)
@@ -53,8 +60,14 @@ npm install
 
 3. **Setup environment**
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
+# Copy the example file
+cp .env.local.example .env.local
+
+# Edit .env.local with your configuration
+# Required variables:
+# - BOT_TOKEN: Get from @BotFather
+# - POSTGRES_URI: Your database connection string
+# - ADMIN_TELEGRAM_IDS: Your Telegram ID (get from @userinfobot)
 ```
 
 4. **Setup database**
@@ -65,15 +78,30 @@ CREATE DATABASE chatbot_db;
 CREATE USER chatbot_user WITH ENCRYPTED PASSWORD 'your_password';
 GRANT ALL PRIVILEGES ON DATABASE chatbot_db TO chatbot_user;
 \q
+
+# Initialize schema
+npm run init-schema
 ```
 
 5. **Start the bot**
 ```bash
-# Development
+# Development (bot only)
 npm run dev
 
-# Production
-npm start
+# Production with PM2 cluster (bot + admin dashboard)
+npm run cluster
+
+# Start both bot and admin dashboard
+node start-all.js
+```
+
+6. **Access Admin Dashboard**
+```bash
+# Open in browser
+http://localhost:3000/admin/login
+
+# See detailed guide
+cat ADMIN_DASHBOARD_GUIDE.md
 ```
 
 ## 🌐 VPS Deployment
@@ -119,34 +147,178 @@ pm2 monit
 ## 📁 Project Structure
 
 ```
-├── bot.js                          # Main bot entry point
+AnonStrangerChatbot/
+│
+├── bot.js
+│   └── Entry point
+│       - Initializes bots (multi-bot support)
+│       - Loads feature flags
+│       - Registers handlers
+│
+├── test-bot.js
+│   └── Local testing / sandbox bot
+│
+├── package.json
+├── Dockerfile
+├── ecosystem.config.js
+├── deploy.sh
+│
 ├── config/
-│   └── config.js                   # Configuration management
+│   ├── config.js
+│   │   └── Env config (BOT TOKENS, DB, REDIS, ADMIN_GROUP_ID)
+│   
+│   ├── featureFlags.js
+│   │   └── ENABLE_VIP, ENABLE_LOCK_CHAT, ENABLE_STARS, etc.
+│   
+│   └── bots.js
+│       └── Maps multiple bot tokens → botId
+│
 ├── controllers/
-│   ├── enhancedChatController.js   # Main chat logic with UI/UX
-│   ├── mediaController.js          # Media handling
-│   └── adminController.js          # Admin commands
-├── database/
-│   ├── connectionPool.js           # Optimized DB connections
-│   ├── redisClient.js             # Redis client with fallback
-│   └── memoryRedis.js             # In-memory Redis for development
-├── middlewares/
-│   └── authMiddleware.js          # Channel verification
+│   ├── enhancedChatController.js
+│   │   └── Search, match, stop, next, profile display
+│   
+│   ├── mediaController.js
+│   │   └── Media relay (normal + view-once → admin)
+│   
+│   ├── paymentController.js
+│   │   └── Telegram Stars payment entry point
+│   
+│   ├── adminController.js
+│   │   └── Admin commands, alerts, stats
+│   
+│   └── referralController.js
+│       └── Invite links, referral tracking
+│
+├── services/
+│   ├── matchingService.js
+│   │   └── VIP priority + gender filter matching
+│   
+│   ├── sessionService.js
+│   │   └── Chat lifecycle, heartbeats, cleanup
+│   
+│   ├── vipService.js
+│   │   └── VIP activation, expiry, checks
+│   
+│   ├── lockChatService.js
+│   │   └── Paid lock chat logic & enforcement
+│   
+│   ├── paymentService.js
+│   │   └── Telegram Stars verification & routing
+│   
+│   ├── referralService.js
+│   │   └── Referrals + 80% internal affiliate rewards
+│   
+│   └── affiliateService.js
+│       └── Converts Stars value → VIP days / lock credits
+│
 ├── models/
-│   ├── userModel.js               # User data model
-│   └── chatModel.js               # Chat session model
+│   ├── index.js
+│   │   └── Sequelize init
+│   
+│   ├── userModel.js
+│   │   └── Users table
+│   
+│   ├── chatModel.js
+│   │   └── Chats table
+│   
+│   ├── vipSubscriptionModel.js
+│   │   └── VIP subscriptions
+│   
+│   ├── starTransactionModel.js
+│   │   └── Stars payments
+│   
+│   ├── lockChatModel.js
+│   │   └── Lock chat history
+│   
+│   ├── referralModel.js
+│   │   └── Referral mapping
+│   
+│   └── affiliateRewardModel.js
+│       └── Internal rewards
+│
+├── database/
+│   ├── connectionPool.js
+│   │   └── PostgreSQL / SQLite pool
+│   
+│   ├── redisClient.js
+│   │   └── Redis connection
+│   
+│   └── memoryRedis.js
+│       └── Fallback for local dev
+│
+├── middlewares/
+│   ├── authMiddleware.js
+│   │   └── Channel join / access control
+│   
+│   ├── adminGuard.js
+│   │   └── Protect admin commands
+│   
+│   └── featureGuard.js
+│       └── Feature flag enforcement
+│
 ├── utils/
-│   ├── keyboards.js               # Custom Telegram keyboards
-│   ├── enhancedMessages.js        # Emoji-rich messages
-│   ├── performance.js             # Caching and optimization
-│   └── sessionManager.js          # Smart session handling
-└── ecosystem.config.js            # PM2 configuration
+│   ├── messages.js
+│   │   └── Core text messages
+│   
+│   ├── enhancedMessages.js
+│   │   └── Fun UI / emoji messages
+│   
+│   ├── keyboards.js
+│   │   └── Telegram inline & reply keyboards
+│   
+│   ├── sessionManager.js
+│   │   └── Session helpers
+│   
+│   ├── redisKeys.js
+│   │   └── Central Redis key naming
+│   
+│   ├── rateLimiter.js
+│   │   └── (Optional) Future rate limits
+│   
+│   ├── logger.js
+│   │   └── Central logging
+│   
+│   └── helper.js
+│       └── Shared utility helpers
+│
+├── jobs/
+│   ├── cleanupJob.js
+│   │   └── Expire chats, locks, sessions
+│   
+│   ├── vipExpiryJob.js
+│   │   └── Downgrade expired VIPs
+│   
+│   └── referralAuditJob.js
+│       └── Detect referral abuse
+│
+├── constants/
+│   ├── starsPricing.js
+│   │   └── VIP & lock pricing
+│   
+│   ├── limits.js
+│   │   └── Lock limits, referral thresholds
+│   
+│   └── enums.js
+│       └── Status enums
+│
+├── docs/
+│   ├── README.md
+│   ├── DEPLOYMENT.md
+│   ├── STARS_MONETIZATION.md
+│   ├── SECURITY.md
+│   └── FUTURE_SCOPE.md
+│
+└── logs/
+    ├── combined.log
+    ├── error.log
+    └── payments.log
 ```
-
 ## 🔧 Configuration
 
 ### Environment Variables
 ```env
+# Comma-separated list of tokens for multiple bots (optional)
+BOT_TOKENS=token1,token2
 BOT_TOKEN=your_telegram_bot_token
 DATABASE_URL=postgresql://user:pass@localhost:5432/db
 REDIS_URL=redis://localhost:6379
@@ -155,6 +327,8 @@ REQUIRED_CHANNEL_1=@channel1
 REQUIRED_CHANNEL_2=@channel2
 NODE_ENV=production
 ```
+
+**Note:** PM2's `ecosystem.config.js` now defaults to `script: 'bots.js'` which initializes all tokens found in `BOT_TOKENS` (falling back to single `BOT_TOKEN`).
 
 ### Bot Commands
 - `/start` - Initialize profile setup
