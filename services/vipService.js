@@ -50,8 +50,9 @@ class VipService {
   }
 
   static async getVipPreferences(userId) {
-    // For now support 'gender' preference stored in User model as vipGender pref (future field)
-    const user = await User.findOne({ where: { userId } });
+    // Use cached user data (performance optimization)
+    const UserCacheService = require('./userCacheService');
+    const user = await UserCacheService.getUser(userId);
     // Default preferences
     return { gender: (user && user.vipGender) ? user.vipGender : 'Any' };
   }

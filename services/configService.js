@@ -92,18 +92,35 @@ class ConfigService {
    * Safe to run on every startup
    */
   static async initializeDefaults() {
+    // Default dynamic VIP plans (JSON array)
+    const defaultVipPlans = [
+      { id: 'basic', name: 'BASIC', stars: 100, days: 4, enabled: true },
+      { id: 'plus', name: 'PLUS', stars: 200, days: 7, enabled: true },
+      { id: 'pro', name: 'PRO', stars: 300, days: 30, enabled: true },
+      { id: 'half_year', name: 'HALF_YEAR', stars: 900, days: 182, enabled: true },
+      { id: 'yearly', name: 'YEARLY', stars: 1500, days: 365, enabled: true }
+    ];
+
     const defaults = {
-      // VIP Plans (named plans - dynamic pricing)
+      // VIP Plans (dynamic - stored as JSON array)
+      'vip_plans_config': JSON.stringify(defaultVipPlans),
+      
+      // Legacy VIP Plans (for backward compatibility during migration)
       'vip_plan_basic_stars': 100,
       'vip_plan_basic_days': 4,
+      'vip_plan_basic_name': 'BASIC',
       'vip_plan_plus_stars': 200,
       'vip_plan_plus_days': 7,
+      'vip_plan_plus_name': 'PLUS',
       'vip_plan_pro_stars': 300,
       'vip_plan_pro_days': 30,
+      'vip_plan_pro_name': 'PRO',
       'vip_plan_half_year_stars': 900,
       'vip_plan_half_year_days': 182,
+      'vip_plan_half_year_name': 'HALF_YEAR',
       'vip_plan_yearly_stars': 1500,
       'vip_plan_yearly_days': 365,
+      'vip_plan_yearly_name': 'YEARLY',
       'vip_enabled': true,
 
       // Lock Chat Pricing (dynamic)

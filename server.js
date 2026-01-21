@@ -38,6 +38,12 @@ async function startServer() {
     // Sync app_config table
     await sequelize.sync({ alter: false }); // Don't auto-alter, just create if missing
     
+    // Create LockCredits table if it doesn't exist (fix for lock chat feature)
+    const { createLockCreditsTable } = require('./database/createLockCreditsTable');
+    await createLockCreditsTable().catch(err => {
+      console.warn('⚠️  Could not create LockCredits table (may already exist):', err.message);
+    });
+    
     // Initialize default config values
     await ConfigService.initializeDefaults();
 

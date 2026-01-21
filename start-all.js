@@ -17,10 +17,11 @@ async function startAll() {
     const { startServer } = require('./server');
     await startServer();
     
-    // 2. Start Telegram bot
+    // 2. Start Telegram bot (multi-bot support)
     logger.info('Starting Telegram bot...');
-    const { main } = require('./bot');
-    await main();
+    const { initBots, startHealthCheck } = require('./bots');
+    await initBots();
+    startHealthCheck();
     
     logger.info('✅ All services started successfully');
     logger.info('Admin dashboard: http://localhost:' + (process.env.ADMIN_PORT || 3000) + '/admin/login');

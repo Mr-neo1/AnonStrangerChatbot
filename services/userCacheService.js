@@ -17,7 +17,7 @@ class UserCacheService {
    * @param {Array} attributes - Attributes to fetch (default: all essential fields)
    * @returns {Object|Array} User data or null
    */
-  static async getUser(userIds, attributes = ['userId', 'gender', 'name', 'banned', 'isVip']) {
+  static async getUser(userIds, attributes = ['userId', 'gender', 'age', 'banned', 'botId']) {
     const isBatch = Array.isArray(userIds);
     const ids = isBatch ? userIds : [userIds];
     
@@ -42,10 +42,10 @@ class UserCacheService {
             return parsed;
           }
           
-          // Cache miss - fetch from database
+          // Cache miss - fetch from database (only existing columns)
           const user = await User.findOne({ 
             where: { userId }, 
-            attributes: ['userId', 'gender', 'name', 'banned', 'isVip', 'language']
+            attributes: ['userId', 'telegramId', 'botId', 'gender', 'age', 'banned', 'totalChats', 'dailyStreak', 'vipGender', 'hasStarted']
           });
           
           if (user) {

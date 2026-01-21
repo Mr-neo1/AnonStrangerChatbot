@@ -35,21 +35,72 @@
 
     <section class="card p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Users</h2>
+        <h2 class="text-lg font-semibold">👥 User Management</h2>
         <span class="text-xs text-slate-400" id="usersMeta"></span>
+      </div>
+      <div class="mb-3">
+        <div class="flex items-center gap-2 mb-2">
+          <input type="text" id="userSearch" placeholder="Search by Telegram ID..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+          <select id="userFilter" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+            <option value="">All Users</option>
+            <option value="true">Banned</option>
+            <option value="false">Not Banned</option>
+          </select>
+          <button id="searchUsersBtn" class="pill bg-indigo-600 text-white border-indigo-500 text-sm">Search</button>
+        </div>
+        <div id="userSearchResults" class="space-y-2"></div>
+        <div id="userPagination" class="mt-3 text-xs text-slate-400"></div>
       </div>
       <div class="grid-auto" id="userCards"></div>
     </section>
 
     <section class="card p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Broadcasts</h2>
-        <span class="text-xs text-slate-400" id="broadcastMeta"></span>
+        <h2 class="text-lg font-semibold">🧠 Recommendations</h2>
+        <button id="refreshRecsBtn" class="pill text-sm">Refresh</button>
+      </div>
+      <div id="recommendationsPanel" class="space-y-2"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">💬 Active Chats</h2>
+        <button id="refreshChatsBtn" class="pill text-sm">Refresh</button>
+      </div>
+      <div id="activeChatsList" class="space-y-2"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">⚙️ System Control</h2>
+        <button id="refreshSystemBtn" class="pill text-sm">Refresh</button>
+      </div>
+      <div id="systemHealth" class="mb-3"></div>
+      <div class="flex gap-2">
+        <button id="clearCacheBtn" class="pill bg-yellow-600 text-white border-yellow-500 text-sm">Clear Cache</button>
+        <button id="stopBroadcastsBtn" class="pill bg-red-600 text-white border-red-500 text-sm">Stop Broadcasts</button>
+      </div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">📢 Broadcasts</h2>
+        <div class="flex items-center gap-2">
+          <button id="checkBroadcastStatusBtn" class="pill text-xs">Check Status</button>
+          <span class="text-xs text-slate-400" id="broadcastMeta"></span>
+        </div>
       </div>
       <form id="broadcastForm" class="space-y-3">
         <textarea id="broadcastMessage" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm" rows="3" placeholder="Message to broadcast"></textarea>
-        <div class="flex items-center gap-3 text-sm">
+        <div class="flex items-center gap-2">
+          <select id="broadcastAudience" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+            <option value="all">All Users</option>
+            <option value="vip">VIP Only</option>
+            <option value="free">Free Users Only</option>
+          </select>
           <button type="submit" class="pill bg-indigo-600 text-white border-indigo-500">Queue Broadcast</button>
+        </div>
+        <div class="flex items-center gap-3 text-sm">
           <span id="broadcastStatus" class="text-xs text-slate-400"></span>
         </div>
       </form>
@@ -61,6 +112,20 @@
         <span class="text-xs text-slate-400">Dynamic pricing</span>
       </div>
       <div id="vipPlansList" class="space-y-3"></div>
+    </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">🎯 Referral Control</h2>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-slate-400 flex items-center gap-2">
+            <input id="referralToggle" type="checkbox" class="w-4 h-4" />
+            Enable Referrals
+          </label>
+          <button id="refreshReferralsBtn" class="pill text-sm">Refresh</button>
+        </div>
+      </div>
+      <div id="referralPanel" class="space-y-3"></div>
     </section>
 
     <section class="card p-4 mb-6">
@@ -95,13 +160,33 @@
 
     <section class="card p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Settings</h2>
+        <h2 class="text-lg font-semibold">⚙️ Settings</h2>
         <span class="text-xs text-slate-400">Other config</span>
+      </div>
+      <div class="mb-3">
+        <div class="flex items-center gap-2 mb-2">
+          <input type="text" id="presetName" placeholder="Preset name..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+          <button onclick="savePreset()" class="pill bg-green-600 text-white border-green-500 text-sm">Save Preset</button>
+          <button onclick="loadPresets()" class="pill text-sm">Load Preset</button>
+        </div>
+        <div id="presetsList" class="text-xs text-slate-400"></div>
       </div>
       <div class="space-y-3" id="settingsList"></div>
     </section>
+
+    <section class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">📊 Monitoring</h2>
+        <button id="refreshMonitoringBtn" class="pill text-sm">Refresh</button>
+      </div>
+      <div id="monitoringStats" class="grid-auto mb-3"></div>
+      <div>
+        <h3 class="text-sm font-semibold mb-2">Recent Errors (Last 50)</h3>
+        <div id="errorLogs" class="space-y-1 max-h-64 overflow-y-auto"></div>
+      </div>
+    </section>
   </div>
 
-  <script type="module" src="/js/admin-app.js"></script>
+  <script src="/js/admin-app.js"></script>
 </body>
 </html>

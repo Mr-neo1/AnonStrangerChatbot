@@ -11,6 +11,12 @@ function initBullQueue() {
       return null; // Bull cannot run on memory adapter
     }
     const q = new Queue('broadcast-queue', redisUrl);
+    
+    // Set up processor for Bull queue
+    q.process(async (job) => {
+      await processBroadcast(job.data);
+    });
+    
     implType = 'bull';
     return q;
   } catch (err) {
@@ -28,8 +34,11 @@ function initMemoryQueue() {
     if (!job) return;
     processing = true;
     try {
-      // TODO: implement actual broadcast fan-out worker here
-      console.log(`🟡 [memory-queue] accepted broadcast job ${job.id} audience=${job.data.audience || 'all'}`);
+      // Implement actual broadcast fan-out worker
+      await processBroadcast(job.data);
+      console.log(`✅ [memory-queue] Broadcast job ${job.id} completed (audience=${job.data.audience || 'all'})`);
+    } catch (err) {
+      console.error(`❌ [memory-queue] Broadcast job ${job.id} failed:`, err.message);
     } finally {
       processing = false;
       setImmediate(processNext);
@@ -45,6 +54,89 @@ function initMemoryQueue() {
     },
     getImplType: () => 'memory'
   };
+}
+
+// Process broadcast - send messages to users
+async function processBroadcast(data) {
+  const { message, audience = 'all', meta = {} } = data;
+  const { User, VipSubscription } = require('../models');
+  const { Op } = require('sequelize');
+  const { getAllBots } = require('../bots');
+  const bots = getAllBots();
+  
+  if (!bots || bots.length === 0) {
+    throw new Error('No bot instances available');
+  }
+  
+  // Build user query based on audience
+  const where = {};
+  if (audience === 'vip') {
+    // Get VIP user IDs
+    const vipUsers = await VipSubscription.findAll({
+      where: { expiresAt: { [Op.gt]: new Date() } },
+      attributes: ['userId']
+    });
+    const vipUserIds = vipUsers.map(v => v.userId);
+    if (vipUserIds.length === 0) {
+      console.log('No VIP users found');
+      return;
+    }
+    where.userId = { [Op.in]: vipUserIds };
+  } else if (audience === 'free') {
+    // Get non-VIP users
+    const vipUsers = await VipSubscription.findAll({
+      where: { expiresAt: { [Op.gt]: new Date() } },
+      attributes: ['userId']
+    });
+    const vipUserIds = vipUsers.map(v => v.userId);
+    if (vipUserIds.length > 0) {
+      where.userId = { [Op.notIn]: vipUserIds };
+    }
+  }
+  
+  // Get users (paginated to avoid memory issues)
+  const limit = 100;
+  let offset = 0;
+  let totalSent = 0;
+  let totalFailed = 0;
+  
+  while (true) {
+    const users = await User.findAll({
+      where,
+      limit,
+      offset,
+      attributes: ['userId', 'telegramId', 'botId']
+    });
+    
+    if (users.length === 0) break;
+    
+    // Send messages in parallel (batched)
+    const sendPromises = users.map(async (user) => {
+      try {
+        // Get bot for this user
+        const bot = bots.find(b => b._meta?.botId === user.botId) || bots[0];
+        await bot.sendMessage(user.telegramId, `📢 ${message}`).catch(() => {
+          throw new Error('Send failed');
+        });
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
+    
+    const results = await Promise.all(sendPromises);
+    totalSent += results.filter(r => r.success).length;
+    totalFailed += results.filter(r => !r.success).length;
+    
+    offset += limit;
+    
+    // Small delay to avoid rate limits
+    if (users.length === limit) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  
+  console.log(`📢 Broadcast completed: ${totalSent} sent, ${totalFailed} failed`);
 }
 
 function getQueue() {
@@ -64,5 +156,6 @@ async function enqueueBroadcast({ message, audience = 'all', meta = {} }) {
 
 module.exports = {
   enqueueBroadcast,
-  getQueue
+  getQueue,
+  processBroadcast
 };

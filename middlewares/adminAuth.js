@@ -93,6 +93,19 @@ async function validateSession(token) {
 }
 
 /**
+ * Destroy a session token (logout)
+ */
+async function destroySession(token) {
+  if (!token) return false;
+  try {
+    await redisClient.del(`admin:session:${token}`);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * Check rate limiting for login attempts
  */
 function checkRateLimit(identifier) {
@@ -163,6 +176,7 @@ module.exports = {
   isAdmin,
   createSession,
   validateSession,
+  destroySession,
   checkRateLimit,
   requireAdmin,
   validateAdminId

@@ -76,10 +76,21 @@ class BotRouter {
     // Fallback to first available bot
     if (!bot) {
       const allBots = getAllBots();
+      if (allBots && allBots.length > 0) {
       bot = allBots[0];
-      console.log(`⚠️  Bot ${botId} not found for user ${userId}, using fallback bot_0`);
+        console.log(`⚠️  Bot ${botId} not found for user ${userId}, using fallback ${bot.botId || 'first bot'}`);
     } else {
-      console.log(`✅ Using ${botId} for user ${userId}`);
+        // Last resort: try to get bot by 'default' or 'bot_0'
+        bot = getBotById('default') || getBotById('bot_0');
+        if (!bot) {
+          throw new Error(`No bot instances available. User: ${userId}, Requested botId: ${botId}`);
+        }
+        console.log(`⚠️  Bot ${botId} not found for user ${userId}, using fallback ${bot.botId}`);
+      }
+    }
+    
+    if (!bot || typeof bot.sendMessage !== 'function') {
+      throw new Error(`Invalid bot instance for user ${userId}. BotId: ${botId}, Bot: ${bot}`);
     }
     
     return bot;

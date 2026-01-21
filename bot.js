@@ -148,6 +148,12 @@ async function initApp() {
     // Connect to SQL
     await sequelize.authenticate();
     console.log("✅ SQL Database Connected");
+    
+    // Create LockCredits table if it doesn't exist (fix for lock chat feature)
+    const { createLockCreditsTable } = require('./database/createLockCreditsTable');
+    await createLockCreditsTable().catch(err => {
+      console.warn('⚠️  Could not create LockCredits table (may already exist):', err.message);
+    });
 
     // Validate admin channel configuration (non-blocking)
     const { validateAdminChannels } = require('./config/config');

@@ -7,19 +7,27 @@ const { cache, rateLimiter } = require("../utils/performance");
 const SessionManager = require("../utils/sessionManager");
 const BotRouter = require("../utils/botRouter");
 
-// Helper function to wrap handlers with mandatory channel verification
-function withChannelVerification(handler) {
+// Helper function factory to create channel verification wrapper with bot instance
+function createChannelVerificationWrapper(botInstance, controllerInstance) {
+  return function(handler) {
   return async function(msg) {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+      
+      // Use the bot instance passed to the wrapper
+      if (!botInstance) {
+        console.error('Bot instance not available in handler');
+        return; // Skip handler if bot not available
+      }
     
     // Always check channel membership (mandatory)
-    if (!(await checkUserJoined(this.bot, userId, chatId))) {
+      if (!(await checkUserJoined(botInstance, userId, chatId))) {
       return; // checkUserJoined already sends message to user
     }
     
-    // Call the original handler
-    return await handler.call(this, msg);
+      // Call the original handler with controller instance as context
+      return await handler.call(controllerInstance, msg);
+    };
   };
 }
 
@@ -29,6 +37,7 @@ const VipService = require('../services/vipService');
 const LockChatService = require('../services/lockChatService');
 const ReferralService = require('../services/referralService');
 const AbuseService = require('../services/abuseService');
+const UserCacheService = require('../services/userCacheService');
 const config = require('../config/config');
 const { isFeatureEnabled } = require('../config/featureFlags');
 
@@ -49,17 +58,19 @@ global.userConversations = global.userConversations || {};
 class EnhancedChatController {
   constructor(bot) {
     this.bot = bot;
+    // Create channel verification wrapper with bot instance and controller context
+    this.withChannelVerification = createChannelVerificationWrapper(this.bot, this);
     this.initializeCommands();
     this.initializeMessageRelay();
   }
 
   initializeCommands() {
     // Handle button presses - ALL wrapped with channel verification
-    this.bot.onText(/🔍 Find Partner/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🔍 Find Partner/, this.withChannelVerification(async (msg) => {
       await this.handleSearch(msg);
     }));
 
-    this.bot.onText(/❌ Stop Chat/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/❌ Stop Chat/, this.withChannelVerification(async (msg) => {
       try {
         await this.stopChatInternal(msg.chat.id);
       } catch (error) {
@@ -72,42 +83,42 @@ class EnhancedChatController {
       }
     }));
 
-    this.bot.onText(/📊 My Stats/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/📊 My Stats/, this.withChannelVerification(async (msg) => {
       await this.showUserStats(msg);
     }));
 
-    this.bot.onText(/⚙️ Settings/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/⚙️ Settings/, this.withChannelVerification(async (msg) => {
       await this.showSettings(msg);
     }));
 
     // Chat active buttons
-    this.bot.onText(/⏭ Next Partner/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/⏭ Next Partner/, this.withChannelVerification(async (msg) => {
       await this.handleFind(msg);
     }));
 
-    this.bot.onText(/🔒 Lock Chat/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🔒 Lock Chat/, this.withChannelVerification(async (msg) => {
       await this.handleLockChat(msg);
     }));
 
     // Settings menu buttons
-    this.bot.onText(/👤 Update Gender/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/👤 Update Gender/, this.withChannelVerification(async (msg) => {
       await this.updateGender(msg);
     }));
 
-    this.bot.onText(/🎂 Update Age/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🎂 Update Age/, this.withChannelVerification(async (msg) => {
       await this.updateAge(msg);
     }));
 
-    this.bot.onText(/⭐ Partner Gender Preference/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/⭐ Partner Gender Preference/, this.withChannelVerification(async (msg) => {
       await this.updateVipGenderPreference(msg);
     }));
 
-    this.bot.onText(/📊 View Stats/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/📊 View Stats/, this.withChannelVerification(async (msg) => {
       await this.showUserStats(msg);
     }));
 
     // Back from menus -> restore the main keyboard
-    this.bot.onText(/🔙 Back/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🔙 Back/, this.withChannelVerification(async (msg) => {
       this.bot.sendMessage(msg.chat.id, enhancedMessages.profileComplete, {
         parse_mode: "Markdown",
         ...keyboards.getMainKeyboard()
@@ -115,12 +126,12 @@ class EnhancedChatController {
     }));
 
     // Menu button -> show menu keyboard
-    this.bot.onText(/☰ Menu/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/☰ Menu/, this.withChannelVerification(async (msg) => {
       this.bot.sendMessage(msg.chat.id, "☰ Menu", keyboards.getMenuKeyboard());
     }));
 
     // Buy Premium -> show ONLY VIP plans (Lock purchases are separate)
-    this.bot.onText(/⭐ Buy Premium/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/⭐ Buy Premium/, this.withChannelVerification(async (msg) => {
       const chatId = msg.chat.id;
       
       // Guard: prevent access during active chat
@@ -138,13 +149,15 @@ class EnhancedChatController {
       const vipPlans = await starsPricing.getVipPlans();
       
       // Only VIP plans - no lock durations
-      const vipButtons = Object.keys(vipPlans || {}).map(planId => {
-        const plan = vipPlans[planId];
+      const vipButtons = Object.keys(vipPlans || {}).map(planKey => {
+        const plan = vipPlans[planKey];
+        const planId = plan.id || planKey.toLowerCase();
+        const planName = plan.name || planKey;
         const daysText = plan.days === 30 ? '1 month' : 
                         plan.days === 182 ? '6 months' : 
                         plan.days === 365 ? '1 year' : 
                         `${plan.days} days`;
-        return [{ text: `${planId} (${plan.stars}⭐) - ${daysText}`, callback_data: `STAR_BUY:VIP:${planId}` }];
+        return [{ text: `${planName} (${plan.stars}⭐) - ${daysText}`, callback_data: `STAR_BUY:VIP:${planId}` }];
       });
 
       const inline = { reply_markup: { inline_keyboard: [
@@ -159,7 +172,7 @@ class EnhancedChatController {
     }));
 
     // Rewards / Redeem menu
-    this.bot.onText(/⭐ Rewards \/ Redeem/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/⭐ Rewards \/ Redeem/, this.withChannelVerification(async (msg) => {
       const chatId = msg.chat.id;
       const AffiliateRedemptionService = require('../services/affiliateRedemptionService');
       const credits = await AffiliateRedemptionService.getAvailableCredits(msg.from.id);
@@ -253,21 +266,21 @@ class EnhancedChatController {
       }
     });
 
-    this.bot.onText(/📋 Rules/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/📋 Rules/, this.withChannelVerification(async (msg) => {
       this.bot.sendMessage(msg.chat.id, enhancedMessages.rules, {
         parse_mode: "Markdown",
         ...keyboards.getMainKeyboard()
       });
     }));
 
-    this.bot.onText(/🆔 My ID/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🆔 My ID/, this.withChannelVerification(async (msg) => {
       this.bot.sendMessage(msg.chat.id, `🆔 *Your Telegram ID:* \`${msg.from.id}\``, {
         parse_mode: "Markdown",
         ...keyboards.getMainKeyboard()
       });
     }));
 
-    this.bot.onText(/👤 My Profile/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/👤 My Profile/, this.withChannelVerification(async (msg) => {
       await this.showUserProfile(msg);
     }));
 
@@ -276,10 +289,17 @@ class EnhancedChatController {
       const chatId = msg.chat.id;
       const userId = msg.from.id;
 
-      if (!(await checkUserJoined(this.bot, userId, chatId))) return;
+      // Channel verification for /start (mandatory if channels configured)
+      if (!(await checkUserJoined(this.bot, userId, chatId))) {
+        return; // User must join channels first
+      }
       
       // Track which bot this user is using (for cross-bot routing)
-      const currentBotId = this.bot.botId || 'bot_0';
+      // Map 'default' to 'bot_0' for compatibility
+      let currentBotId = this.bot.botId || 'bot_0';
+      if (currentBotId === 'default') {
+        currentBotId = 'bot_0';
+      }
       await BotRouter.setUserBot(userId, currentBotId);
       
       try {
@@ -326,11 +346,11 @@ class EnhancedChatController {
     });
 
     // Handle gender selection (both commands and buttons)
-    this.bot.onText(/\/(Male|Female|Other)/, withChannelVerification.call(this, async (msg, match) => {
+    this.bot.onText(/\/(Male|Female|Other)/, this.withChannelVerification(async (msg, match) => {
       await this.handleGenderSelection(msg, match[1]);
     }));
 
-    this.bot.onText(/👨 Male|👩 Female|🌈 Other/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/👨 Male|👩 Female|🌈 Other/, this.withChannelVerification(async (msg) => {
       const userState = global.userConversations[msg.from.id];
       // Check if updating VIP gender preference
       if (userState === "updating_vip_gender") {
@@ -347,7 +367,7 @@ class EnhancedChatController {
     }));
 
     // Handle "Any" option for VIP gender preference
-    this.bot.onText(/🌐 Any/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/🌐 Any/, this.withChannelVerification(async (msg) => {
       const userState = global.userConversations[msg.from.id];
       if (userState === "updating_vip_gender") {
         await this.handleVipGenderPreferenceSelection(msg, 'Any');
@@ -355,21 +375,21 @@ class EnhancedChatController {
     }));
 
     // /search and /find commands
-    this.bot.onText(/\/search/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/\/search/, this.withChannelVerification(async (msg) => {
       await this.handleSearch(msg);
     }));
 
-    this.bot.onText(/\/find/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/\/find/, this.withChannelVerification(async (msg) => {
       await this.handleFind(msg);
     }));
 
     // /stop command
-    this.bot.onText(/\/stop/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/\/stop/, this.withChannelVerification(async (msg) => {
       await this.stopChatInternal(msg.chat.id);
     }));
 
     // /link command
-    this.bot.onText(/\/link/, withChannelVerification.call(this, async (msg) => {
+    this.bot.onText(/\/link/, this.withChannelVerification(async (msg) => {
       await this.shareProfile(msg);
     }));
   }
@@ -449,10 +469,15 @@ class EnhancedChatController {
     if (!(await checkUserJoined(this.bot, userId, chatId))) return;
     
     // Track which bot user is using
-    const currentBotId = this.bot.botId || 'bot_0';
+    // Map 'default' to 'bot_0' for compatibility
+    let currentBotId = this.bot.botId || 'bot_0';
+    if (currentBotId === 'default') {
+      currentBotId = 'bot_0';
+    }
     await BotRouter.setUserBot(userId, currentBotId);
     
-    const user = await User.findOne({ where: { userId } });
+    // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
     if (!user || !user.gender || !user.age) {
       return this.bot.sendMessage(chatId, "❌ Your profile is incomplete. Use /start to set up your profile.", keyboards.getMainKeyboard());
     }
@@ -472,7 +497,8 @@ class EnhancedChatController {
     const userId = msg.from.id;
 
     if (!(await checkUserJoined(this.bot, userId, chatId))) return;
-    const user = await User.findOne({ where: { userId } });
+    // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
     if (!user || !user.gender || !user.age) {
       return this.bot.sendMessage(chatId, "❌ Your profile is incomplete. Use /start to set up your profile.", keyboards.getMainKeyboard());
     }
@@ -546,7 +572,8 @@ class EnhancedChatController {
       await this.updateDailyStreak(userId);
       
       // Get updated user stats
-      const user = await User.findOne({ where: { userId } });
+      // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
       const statsMessage = `📊 *Your Statistics*\n\n` +
         `👤 Gender: ${user?.gender || 'Not set'}\n` +
         `🎂 Age: ${user?.age || 'Not set'}\n` +
@@ -583,7 +610,8 @@ class EnhancedChatController {
     }
     
     try {
-      const user = await User.findOne({ where: { userId } });
+      // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
       
       const fullName = firstName + (lastName ? ' ' + lastName : '');
       const profileMessage = `👤 *Your Profile*\n\n` +
@@ -623,7 +651,8 @@ class EnhancedChatController {
     
     // Check if user is VIP
     const isVip = await VipService.isVipActive(userId);
-    const user = await User.findOne({ where: { userId } });
+    // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
     const currentVipPreference = user?.vipGender || 'Any';
     
     let settingsMessage = `⚙️ *Settings Menu*\n\n` +
@@ -691,7 +720,8 @@ class EnhancedChatController {
   // Update daily streak
   async updateDailyStreak(userId) {
     try {
-      const user = await User.findOne({ where: { userId } });
+      // Use cached user data (performance optimization)
+    const user = await UserCacheService.getUser(userId);
       if (!user) return;
 
       const today = new Date().toISOString().split('T')[0];
@@ -751,9 +781,9 @@ class EnhancedChatController {
       const userId = msg.from.id;
       const text = msg.text.trim();
 
-      // Banned users are blocked
+      // Banned users are blocked (use cached data for performance)
       try {
-        const urec = await User.findOne({ where: { userId } });
+        const urec = await UserCacheService.getUser(userId);
         if (urec && urec.banned) {
           return this.bot.sendMessage(chatId, '❌ You are banned from using this bot.');
         }
@@ -808,7 +838,11 @@ class EnhancedChatController {
       if (partnerId && partnerId !== chatId.toString()) {
         try {
           // Update bot tracking for sender
-          const currentBotId = this.bot.botId || 'bot_0';
+          // Map 'default' to 'bot_0' for compatibility
+    let currentBotId = this.bot.botId || 'bot_0';
+    if (currentBotId === 'default') {
+      currentBotId = 'bot_0';
+    }
           await BotRouter.setUserBot(userId, currentBotId);
           
           await SessionManager.markChatActive(chatId);
@@ -840,13 +874,17 @@ class EnhancedChatController {
 
     // Determine preferences (only if VIP). Non-VIP users have no gender choice.
     const preferences = {};
-    if (isFeatureEnabled('ENABLE_VIP') && await VipService.isVip(userId)) {
+    if (isFeatureEnabled('ENABLE_VIP') && await VipService.isVipActive(userId)) {
       const p = await VipService.getVipPreferences(userId);
       preferences.gender = p.gender || 'Any';
     }
 
-    const config = require('../config/config');
-    const botId = config.BOT_ID || 'default';
+    // Get botId from current bot instance (for multi-bot support)
+    let currentBotId = this.bot.botId || 'bot_0';
+    if (currentBotId === 'default') {
+      currentBotId = 'bot_0';
+    }
+    const botId = currentBotId;
 
     // Try to match immediately
     const partner = await MatchingService.matchNextUser(botId, userId, preferences);
@@ -894,7 +932,8 @@ class EnhancedChatController {
       delete global.searchMessages[userId];
       
       // Send connected message and enhanced partner profile
-      const partnerUser = await User.findOne({ where: { userId: partnerId } });
+      // Use cached user data (performance optimization)
+      const partnerUser = await UserCacheService.getUser(partnerId);
       
       // Build enhanced profile message (only show profile, no "Connected" message)
       let profileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
@@ -928,7 +967,8 @@ class EnhancedChatController {
       delete global.searchMessages[partnerId];
       
       // Send enhanced profile to partner (only show profile, no "Connected" message)
-      const currentUser = await User.findOne({ where: { userId } });
+      // Use cached user data (performance optimization)
+      const currentUser = await UserCacheService.getUser(userId);
       let partnerProfileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
       if (currentUser?.age) {
         partnerProfileMsg += `Age: ${currentUser.age}\n`;
@@ -1106,8 +1146,13 @@ class EnhancedChatController {
       }
 
       // Observational: record disconnect abuse for caller (duringLock true if any lock exists on either side)
+      // OPTIMIZED: Parallelize lock checks instead of sequential
       try {
-        const lockedNow = (await LockChatService.isChatLocked(chatId)) || (partnerId && await LockChatService.isChatLocked(partnerId));
+        const [chatLocked, partnerLocked] = await Promise.all([
+          LockChatService.isChatLocked(chatId),
+          partnerId ? LockChatService.isChatLocked(partnerId) : Promise.resolve(false)
+        ]);
+        const lockedNow = chatLocked || partnerLocked;
         try { await AbuseService.recordDisconnectAbuse({ userId: chatId, chatId, botId: config.BOT_ID || 'default', duringLock: !!lockedNow }); } catch (_) {}
       } catch (e) {
         // swallow - do not affect chat flow
@@ -1174,12 +1219,38 @@ class EnhancedChatController {
       const { Op } = require('sequelize');
       const { sequelize } = require('../database/connectionPool');
       
-      const credits = await LockCredit.findAll({
+      // Ensure table exists before querying
+      try {
+        await sequelize.getQueryInterface().showAllTables();
+      } catch (err) {
+        // Table might not exist, create it
+        const { createLockCreditsTable } = require('../database/createLockCreditsTable');
+        await createLockCreditsTable().catch(() => {});
+      }
+      
+      let credits = [];
+      try {
+        credits = await LockCredit.findAll({
         where: { 
           telegramId: userId,
           consumed: { [Op.lt]: sequelize.col('minutes') }
         }
       });
+      } catch (err) {
+        // Table doesn't exist, create it and retry
+        if (err.message && err.message.includes('no such table')) {
+          const { createLockCreditsTable } = require('../database/createLockCreditsTable');
+          await createLockCreditsTable();
+          credits = await LockCredit.findAll({
+            where: { 
+              telegramId: userId,
+              consumed: { [Op.lt]: sequelize.col('minutes') }
+            }
+          }).catch(() => []);
+        } else {
+          console.error('Error fetching lock credits:', err);
+        }
+      }
 
       const totalMinutes = credits.reduce((sum, c) => sum + (c.minutes - c.consumed), 0);
 

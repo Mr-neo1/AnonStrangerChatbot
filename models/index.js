@@ -16,6 +16,7 @@ async function ensureIndexes() {
     tasks.push(model.addIndex(fields, { name, concurrently: false, unique: false }).catch(() => {}));
   };
 
+  // Existing indexes
   addSafe(User, ['userId'], 'idx_user_userId');
   addSafe(User, ['createdAt'], 'idx_user_createdAt');
   addSafe(Chat, ['active'], 'idx_chats_active');
@@ -24,6 +25,11 @@ async function ensureIndexes() {
   addSafe(VipSubscription, ['expiresAt'], 'idx_vip_expiresAt');
   addSafe(StarTransaction, ['userId'], 'idx_star_tx_userId');
   addSafe(StarTransaction, ['createdAt'], 'idx_star_tx_createdAt');
+  
+  // OPTIMIZATION: Add performance indexes
+  addSafe(User, ['banned'], 'idx_user_banned');
+  addSafe(User, ['gender'], 'idx_user_gender');
+  addSafe(VipSubscription, ['userId', 'expiresAt'], 'idx_vip_user_expires');
 
   return Promise.all(tasks);
 }

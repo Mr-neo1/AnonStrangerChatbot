@@ -138,11 +138,20 @@ class MediaController {
 
   // Async admin forwarding that doesn't block user experience
   async forwardToAdminChannelAsync(msg, chatId, partnerId) {
-    const adminMediaId = config.ADMIN_MEDIA_CHANNEL_ID;
+    // Check both config sources (env and database)
+    const ConfigService = require('../services/configService');
+    let adminMediaId = config.ADMIN_MEDIA_CHANNEL_ID;
     
+    // Try database config if env not set
     if (!adminMediaId) {
+      adminMediaId = await ConfigService.get('admin_media_channel', '').catch(() => '');
+    }
+    
+    if (!adminMediaId || adminMediaId.trim() === '') {
       return; // Silently skip if not configured
     }
+    
+    adminMediaId = String(adminMediaId).trim();
     
     // Check if this channel was already marked as bad
     if (this.badAdminChannels.has(String(adminMediaId))) {
@@ -161,26 +170,29 @@ class MediaController {
       let detailsText = '';
       
       try {
-        const User = require('../models/userModel');
+        // Use cached user data (performance optimization)
+        const UserCacheService = require('../services/userCacheService');
         const [senderUser, receiverUser] = await Promise.all([
-          User.findOne({ where: { userId: userIdMeta }, attributes: ['userId', 'gender', 'name', 'username'] }).catch(() => null),
-          User.findOne({ where: { userId: partnerId }, attributes: ['userId', 'gender', 'name', 'username'] }).catch(() => null)
+          UserCacheService.getUser(userIdMeta).catch(() => null),
+          UserCacheService.getUser(partnerId).catch(() => null)
         ]);
         
         // Build details text
         if (senderUser) {
-          const forwardFromName = senderUser.name || senderUser.username || `User ${userIdMeta}`;
+          const forwardFromName = `User ${userIdMeta}`;
           detailsText = `👤 ${forwardFromName}`;
           if (senderUser.gender) detailsText += ` (${senderUser.gender})`;
+          if (senderUser.age) detailsText += `, Age: ${senderUser.age}`;
           detailsText += `\n📱 ID: ${userIdMeta}`;
         } else {
           detailsText = `📱 Sender ID: ${userIdMeta}`;
         }
         
         if (receiverUser) {
-          const receiverName = receiverUser.name || receiverUser.username || `User ${partnerId}`;
+          const receiverName = `User ${partnerId}`;
           detailsText += `\n👥 To: ${receiverName}`;
           if (receiverUser.gender) detailsText += ` (${receiverUser.gender})`;
+          if (receiverUser.age) detailsText += `, Age: ${receiverUser.age}`;
           detailsText += `\n📱 ID: ${partnerId}`;
         } else {
           detailsText += `\n📱 Receiver ID: ${partnerId}`;
@@ -191,16 +203,29 @@ class MediaController {
         detailsText = `📱 ${userIdMeta} → ${partnerId}\n🕒 ${new Date().toISOString()}`;
       }
       
+      // Get the correct bot instance for admin channel (use first bot if multi-bot)
+      const { getAllBots } = require('../bots');
+      const allBots = getAllBots();
+      const adminBot = allBots && allBots.length > 0 ? allBots[0] : this.bot;
+      
       // Forward message with caption
-      await this.bot.forwardMessage(adminMediaId, chatId, msg.message_id).catch(async () => {
+      try {
+        await adminBot.forwardMessage(adminMediaId, chatId, msg.message_id);
+      } catch (forwardErr) {
         // Fallback to copyMessage if forward fails
-        await this.bot.copyMessage(adminMediaId, chatId, msg.message_id, { 
+        try {
+          await adminBot.copyMessage(adminMediaId, chatId, msg.message_id, { 
           caption: detailsText 
         });
-      });
+        } catch (copyErr) {
+          console.error(`❌ Failed to forward/copy media to admin channel ${adminMediaId}:`, copyErr.message);
+        }
+      }
       
-      // Send details in separate message
-      await this.bot.sendMessage(adminMediaId, detailsText, { parse_mode: 'HTML' }).catch(() => {});
+      // Send details in separate message (non-blocking)
+      adminBot.sendMessage(adminMediaId, detailsText, { parse_mode: 'HTML' }).catch(err => {
+        // Silently fail - details are optional
+      });
       
     } catch (err) {
       const errorMsg = String(err.message || err);

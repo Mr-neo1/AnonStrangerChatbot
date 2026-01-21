@@ -49,11 +49,37 @@ class PaymentService {
         if (type === 'VIP') {
           const planId = ident;
           const vipPlans = await starsPricing.getVipPlans();
-          const plan = vipPlans[planId];
-          if (!plan) return this.bot.sendMessage(chatId, '❌ Invalid VIP plan selected.');
-          const title = `VIP ${planId}`;
+          
+          // Find plan by ID (case-insensitive) - handle both uppercase keys and lowercase IDs
+          let plan = null;
+          const planIdLower = planId.toLowerCase();
+          
+          // Try direct lookup first
+          if (vipPlans[planId]) {
+            plan = vipPlans[planId];
+          } else if (vipPlans[planId.toUpperCase()]) {
+            plan = vipPlans[planId.toUpperCase()];
+          } else {
+            // Search by plan.id property (for dynamic plans)
+            const planKey = Object.keys(vipPlans).find(key => {
+              const p = vipPlans[key];
+              return p && p.id && p.id.toLowerCase() === planIdLower;
+            });
+            if (planKey) {
+              plan = vipPlans[planKey];
+            }
+          }
+          
+          if (!plan) {
+            console.error(`Invalid VIP plan selected: ${planId}. Available plans:`, Object.keys(vipPlans));
+            return this.bot.sendMessage(chatId, '❌ Invalid VIP plan selected. Please try again.');
+          }
+          
+          // Use custom name if available, fallback to planId
+          const planName = plan.name || plan.id || planId;
+          const title = planName ? `VIP ${planName}` : `VIP ${planId}`;
           const description = `${plan.days} day(s) VIP — ${plan.stars} Stars`;
-          const payload = JSON.stringify({ type: 'VIP', planId, days: plan.days });
+          const payload = JSON.stringify({ type: 'VIP', planId: plan.id || planId, days: plan.days });
           // For Telegram Stars (XTR), amount is in Stars directly (no multiplication by 100)
           const prices = [{ label: `${plan.stars} Stars`, amount: plan.stars }];
           // sendInvoice signature: (chatId, title, description, payload, providerToken, currency, prices, options)
@@ -233,9 +259,22 @@ class PaymentService {
       if (payload.type === 'VIP' && featureFlags.isFeatureEnabled('ENABLE_VIP')) {
         // Support both old format (days) and new format (planId)
         let days;
+        let planName = 'VIP';
         const vipPlans = await starsPricing.getVipPlans();
-        if (payload.planId && vipPlans[payload.planId]) {
-          days = vipPlans[payload.planId].days;
+        if (payload.planId) {
+          // Find plan by ID (case-insensitive)
+          const planKey = Object.keys(vipPlans).find(key => {
+            const plan = vipPlans[key];
+            return (plan.id && plan.id.toLowerCase() === payload.planId.toLowerCase()) ||
+                   key.toLowerCase() === payload.planId.toLowerCase();
+          });
+          if (planKey && vipPlans[planKey]) {
+            const plan = vipPlans[planKey];
+            days = plan.days;
+            planName = plan.name || planKey;
+          } else {
+            days = parseInt(payload.days || '7');
+          }
         } else {
           days = parseInt(payload.days || '7');
         }
@@ -244,7 +283,6 @@ class PaymentService {
         postActions.push(async () => {
           // set Redis key for vip after commit
           await VipService.setRedisVip(userId, expiry);
-          const planName = payload.planId || 'VIP';
           await this.bot.sendMessage(userId, `✅ VIP ${planName} activated for ${days} day(s). Enjoy priority matching!`);
         });
       } else if (payload.type === 'LOCK' && featureFlags.isFeatureEnabled('ENABLE_LOCK_CHAT')) {
