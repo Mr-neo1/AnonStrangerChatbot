@@ -57,9 +57,25 @@ class ProcessLock {
           console.log('  ✅ No conflicting processes found');
         }
       } else {
-        // Unix/Linux
+        // Unix/Linux - kill old processes but NOT the current one
         try {
-          execSync('pkill -f "start-all.js|bots.js" 2>/dev/null || true', { encoding: 'utf-8' });
+          // Get PIDs of matching processes, excluding current PID
+          const output = execSync(`pgrep -f "start-all.js|bots.js" 2>/dev/null || true`, { encoding: 'utf-8' });
+          const pids = output.trim().split('\n').filter(p => p && parseInt(p) !== currentPid);
+          
+          for (const pid of pids) {
+            try {
+              process.kill(parseInt(pid), 'SIGTERM');
+              console.log(`  ✅ Killed old bot process (PID: ${pid})`);
+            } catch (e) {
+              // Process might have already exited
+            }
+          }
+          
+          if (pids.length > 0) {
+            console.log(`🧹 Cleaned up ${pids.length} old process(es). Waiting 2 seconds...`);
+            execSync('sleep 2', { encoding: 'utf-8' });
+          }
         } catch (e) {
           // Ignore errors
         }

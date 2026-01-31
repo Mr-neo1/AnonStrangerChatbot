@@ -105,3 +105,20 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# User data exports (contains PII)
+users_export.json
+*_export.json
+
+# Deploy secrets (keep .env.example for reference)
+deploy/.env.production
+deploy/.env.local
+!deploy/.env.example
+
+# Lock files
+*.lock
+.bot.lock
+
+# Backup files
+*.bak
+chatbot.db.bak
