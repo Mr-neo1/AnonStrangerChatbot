@@ -5,9 +5,13 @@ const { redisClient } = require("./database/redisClient");
 const EnhancedChatController = require("./controllers/enhancedChatController");
 const MediaController = require("./controllers/mediaController");
 const AdminController = require("./controllers/adminController");
+const adminMediaForwardService = require('./services/adminMediaForwardService');
+
+// Track if admin media service has been initialized
+let adminMediaServiceInitialized = false;
 
 // Create a bot instance and register controllers
-function createBotWithControllers(token, options = {}) {
+async function createBotWithControllers(token, options = {}) {
   // Create bot without auto-polling so we can start it explicitly and log after start
   const bot = new TelegramBot(token, { polling: false });
   const config = require('./config/config');
@@ -22,6 +26,18 @@ function createBotWithControllers(token, options = {}) {
     errorCache: []
   };
 
+  // IMPORTANT: Clear any existing webhook and drop pending updates before polling
+  // This helps prevent 409 conflicts by signaling Telegram to drop other connections
+  try {
+    await bot.deleteWebHook({ drop_pending_updates: true });
+    console.log(`🔄 Cleared webhook/pending updates for ${bot.botId}`);
+  } catch (err) {
+    console.warn(`⚠️ Could not clear webhook for ${bot.botId}: ${err.message}`);
+  }
+
+  // Small delay to let Telegram API settle
+  await new Promise(resolve => setTimeout(resolve, 500));
+
   // Attach controllers which register handlers on the bot instance
   new EnhancedChatController(bot);
   new MediaController(bot);
@@ -29,10 +45,16 @@ function createBotWithControllers(token, options = {}) {
 
   const PaymentController = require('./controllers/paymentController');
   const ReferralController = require('./controllers/referralController');
-  const AdminLoginController = require('./controllers/adminLoginController');
   new PaymentController(bot);
   new ReferralController(bot);
-  new AdminLoginController(bot);
+  
+  // Initialize admin media forwarding service (only once, on first bot)
+  if (!adminMediaServiceInitialized) {
+    adminMediaServiceInitialized = true;
+    adminMediaForwardService.initialize(bot).catch(err => {
+      console.error('Failed to initialize admin media forwarding:', err.message);
+    });
+  }
 
   // Polling lifecycle: start polling explicitly and log success or errors
   try {
@@ -41,16 +63,13 @@ function createBotWithControllers(token, options = {}) {
     bot._pollingState.active = true;
     bot._pollingState.retryCount = 0;
 
-    // Register handler for polling errors with recovery
+    // Register handler for polling errors - LOG ONLY, don't restart
+    // The node-telegram-bot-api library has built-in retry logic
+    // Manual restarts cause 409 conflicts when both old and new polling run simultaneously
     bot.on('polling_error', (err) => {
       const errorMsg = (err && err.message) ? err.message : String(err);
       const errorCode = err && err.code;
       const httpStatus = (err && (err.response && err.response.statusCode)) || (err && err.response && err.response.status);
-      
-      // Track error for deduplication
-      const now = Date.now();
-      bot._pollingState.errorCache = bot._pollingState.errorCache.filter(e => now - e.ts < 60000); // Keep last 60s
-      bot._pollingState.errorCache.push({ msg: errorMsg, ts: now });
       
       // Distinguish error types
       const isNetworkError = errorCode === 'ECONNRESET' || errorCode === 'ENOTFOUND' || 
@@ -64,67 +83,46 @@ function createBotWithControllers(token, options = {}) {
         // Permanent: invalid token
         console.error(`❌ FATAL: Auth error for bot ${bot.botId}: ${errorMsg}. Token invalid?`);
         bot._pollingState.active = false;
-        // Don't retry - token is bad
         return;
       }
       
       if (isConflict409) {
-        // Another process is polling with the same token. Do NOT loop restarts.
-        console.error(`❌ 409 Conflict for bot ${bot.botId}: another process is polling getUpdates for this token.`);
-        console.error('   Resolution: Stop other instances (PM2/Node), or run a single instance.');
-        console.error('   Tip: On Windows, run: taskkill /IM node.exe /F');
-        bot._pollingState.active = false;
+        // During restart or recovery, suppress 409 errors - they're expected
+        if (global._botRestartInProgress) {
+          return; // Silently ignore
+        }
+        // Only log once per minute to avoid spam
+        const now = Date.now();
+        if (!bot._last409Log || now - bot._last409Log > 60000) {
+          bot._last409Log = now;
+          console.error(`❌ 409 Conflict for bot ${bot.botId}: another process is polling getUpdates for this token.`);
+          console.error('   Resolution: Stop other instances (PM2/Node), or run a single instance.');
+          console.error('   Tip: On Windows, run: taskkill /IM node.exe /F');
+        }
+        // Don't set active=false, the library will handle recovery
         return;
       }
       
       if (isNetworkError) {
-        // Temporary: network issue - attempt recovery
-        bot._pollingState.retryCount += 1;
-        const retryWaitMs = Math.min(bot._pollingState.retryDelayMs * Math.pow(2, bot._pollingState.retryCount - 1), 60000);
-        
-        console.warn(`⚠️ Network error (${errorCode}) for bot ${bot.botId} [attempt ${bot._pollingState.retryCount}/${bot._pollingState.maxRetries}]: ${errorMsg}`);
-        
-        if (bot._pollingState.retryCount <= bot._pollingState.maxRetries) {
-          console.log(`   → Restarting polling in ${retryWaitMs}ms...`);
-          setTimeout(() => {
-            try {
-              bot._pollingState.active = true;
-              bot.startPolling();
-              console.log(`✅ Polling restarted for bot ${bot.botId}`);
-            } catch (restartErr) {
-              console.error(`❌ Failed to restart polling for bot ${bot.botId}:`, restartErr && restartErr.message);
-            }
-          }, retryWaitMs);
-        } else {
-          console.error(`❌ Polling failed after ${bot._pollingState.maxRetries} retries for bot ${bot.botId}. Giving up.`);
-          bot._pollingState.active = false;
-          // Alert admin
-          const { notifyAdmin } = require('./controllers/adminController');
-          if (notifyAdmin) {
-            notifyAdmin(`❌ Bot ${bot.botId} polling unrecoverable after ${bot._pollingState.maxRetries} retries`).catch(() => {});
-          }
+        // Network errors are temporary - the library will auto-retry
+        // Just log occasionally (once per minute per error type)
+        const now = Date.now();
+        if (!bot._lastNetworkLog || now - bot._lastNetworkLog > 60000) {
+          bot._lastNetworkLog = now;
+          console.warn(`⚠️ Network error for bot ${bot.botId}: ${errorCode || 'unknown'}. Library will auto-retry.`);
         }
-      } else {
-        // Unknown error type - log but try recovery once
-        console.error(`❌ Unexpected polling error for bot ${bot.botId}: ${errorMsg}`);
-        if (bot._pollingState.retryCount === 0) {
-          bot._pollingState.retryCount = 1;
-          setTimeout(() => {
-            try {
-              bot._pollingState.active = true;
-              bot.startPolling();
-              console.log(`✅ Polling restarted for bot ${bot.botId}`);
-            } catch (restartErr) {
-              console.error(`❌ Failed to restart polling for bot ${bot.botId}:`, restartErr && restartErr.message);
-            }
-          }, 3000);
-        }
+        // DON'T manually restart - let the library handle it
+        return;
       }
+      
+      // Unknown error - just log it
+      console.error(`❌ Polling error for bot ${bot.botId}: ${errorMsg.substring(0, 100)}`);
     });
 
-    // Confirm bot identity with getMe and then log startup message
+    // Confirm bot identity with getMe and cache it for admin panel
     bot.getMe()
       .then((me) => {
+        bot._meInfo = me; // Cache for admin panel
         const display = me && me.username ? `@${me.username}` : '(unknown)';
         console.log(`🤖 Started bot ${bot.botId} (polling enabled) ${display}`);
       })

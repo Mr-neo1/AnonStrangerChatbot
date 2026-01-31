@@ -1,6 +1,6 @@
 module.exports = {
   apps: [
-    // App 1: Bot single process (multi-bot handled inside bots.js)
+    // Bot single process (multi-bot handled inside bots.js)
     // All tokens are loaded in one process to avoid Telegram 409 conflicts
     {
       name: 'bot',
@@ -16,7 +16,6 @@ module.exports = {
 
       env: {
         NODE_ENV: 'development',
-        PORT: 3000,
         CLUSTER_MODE: 'false',
         ENABLE_CROSS_BOT_MATCHING: 'true',
         // Multi-bot tokens: add your bot tokens here (comma-separated)
@@ -30,7 +29,6 @@ module.exports = {
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000,
         CLUSTER_MODE: 'false',
         ENABLE_CROSS_BOT_MATCHING: process.env.ENABLE_CROSS_BOT_MATCHING || 'true',
         BOT_TOKENS: process.env.BOT_TOKENS || '',
@@ -54,24 +52,28 @@ module.exports = {
       automation: false
     },
 
-    // App 2: Admin panel in fork mode (dedicated single core)
+    // Lightweight Admin Panel
     {
       name: 'admin-panel',
-      script: 'server.js',
+      script: 'admin-server.js',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
       watch: false,
-      max_memory_restart: '512M',
-      kill_timeout: 5000,
+      max_memory_restart: '200M',
+      kill_timeout: 3000,
 
       env: {
         NODE_ENV: 'development',
-        ADMIN_PORT: 3001
+        ADMIN_PANEL_PORT: 4000,
+        ADMIN_USERNAME: 'admin',
+        ADMIN_PASSWORD: 'changeme123'
       },
       env_production: {
         NODE_ENV: 'production',
-        ADMIN_PORT: 3001
+        ADMIN_PANEL_PORT: process.env.ADMIN_PANEL_PORT || 4000,
+        ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'admin',
+        ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'changeme123'
       },
 
       error_file: './logs/admin-err.log',
@@ -80,7 +82,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
     },
 
-    // App 3: Backup job (SQLite copy or pg_dump). Runs on cron and exits.
+    // Backup job (SQLite copy or pg_dump). Runs on cron and exits.
     {
       name: 'db-backup',
       script: 'scripts/backup-db.js',

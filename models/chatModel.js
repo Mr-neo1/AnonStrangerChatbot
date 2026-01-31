@@ -22,6 +22,19 @@ const Chat = sequelize.define("Chat", {
   tableName: 'Chats',
   freezeTableName: true,
   timestamps: true,
+  indexes: [
+    // Index for finding chats by user1
+    { fields: ['user1'] },
+    // Index for finding chats by user2
+    { fields: ['user2'] },
+    // Index for active chat queries
+    { fields: ['active'] },
+    // Composite index for active chats by user
+    { fields: ['user1', 'active'] },
+    { fields: ['user2', 'active'] },
+    // Index for recent chats sorting
+    { fields: ['createdAt'] },
+  ]
 });
 
 // Runtime schema sync removed. Use offline migrations to alter production schemas.

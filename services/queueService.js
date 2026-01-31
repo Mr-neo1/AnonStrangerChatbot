@@ -82,7 +82,7 @@ async function processBroadcast(data) {
       return;
     }
     where.userId = { [Op.in]: vipUserIds };
-  } else if (audience === 'free') {
+  } else if (audience === 'free' || audience === 'non-vip') {
     // Get non-VIP users
     const vipUsers = await VipSubscription.findAll({
       where: { expiresAt: { [Op.gt]: new Date() } },
@@ -92,6 +92,10 @@ async function processBroadcast(data) {
     if (vipUserIds.length > 0) {
       where.userId = { [Op.notIn]: vipUserIds };
     }
+  } else if (audience === 'active') {
+    // Users active in last 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    where.lastActiveAt = { [Op.gte]: sevenDaysAgo };
   }
   
   // Get users (paginated to avoid memory issues)
@@ -99,6 +103,16 @@ async function processBroadcast(data) {
   let offset = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  
+  // Decode media buffer if present
+  let mediaBuffer = null;
+  if (data.media && data.media.buffer) {
+    try {
+      mediaBuffer = Buffer.from(data.media.buffer, 'base64');
+    } catch (e) {
+      console.error('Failed to decode media buffer:', e.message);
+    }
+  }
   
   while (true) {
     const users = await User.findAll({
@@ -115,9 +129,26 @@ async function processBroadcast(data) {
       try {
         // Get bot for this user
         const bot = bots.find(b => b._meta?.botId === user.botId) || bots[0];
-        await bot.sendMessage(user.telegramId, `📢 ${message}`).catch(() => {
-          throw new Error('Send failed');
-        });
+        
+        // Send media with caption if present, otherwise just text
+        if (mediaBuffer && data.media) {
+          const caption = message ? `📢 ${message}` : '';
+          const fileOptions = { 
+            filename: data.media.originalname || `broadcast_${Date.now()}`,
+            contentType: data.media.mimetype
+          };
+          
+          if (data.media.type === 'photo') {
+            await bot.sendPhoto(user.telegramId, mediaBuffer, { caption }, fileOptions);
+          } else if (data.media.type === 'video') {
+            await bot.sendVideo(user.telegramId, mediaBuffer, { caption }, fileOptions);
+          } else {
+            await bot.sendDocument(user.telegramId, mediaBuffer, { caption }, fileOptions);
+          }
+        } else {
+          await bot.sendMessage(user.telegramId, `📢 ${message}`);
+        }
+        
         return { success: true };
       } catch (err) {
         return { success: false, error: err.message };
@@ -136,7 +167,8 @@ async function processBroadcast(data) {
     }
   }
   
-  console.log(`📢 Broadcast completed: ${totalSent} sent, ${totalFailed} failed`);
+  const mediaInfo = data.media ? ` (with ${data.media.type})` : '';
+  console.log(`📢 Broadcast completed${mediaInfo}: ${totalSent} sent, ${totalFailed} failed`);
 }
 
 function getQueue() {
@@ -147,9 +179,9 @@ function getQueue() {
   return queueImpl;
 }
 
-async function enqueueBroadcast({ message, audience = 'all', meta = {} }) {
+async function enqueueBroadcast({ message, audience = 'all', meta = {}, media = null }) {
   const q = getQueue();
-  const payload = { message, audience, meta, requestedBy: meta.requestedBy || 'admin' };
+  const payload = { message, audience, meta, media, requestedBy: meta.requestedBy || 'admin' };
   const job = await q.add(payload);
   return { id: job.id, impl: implType };
 }

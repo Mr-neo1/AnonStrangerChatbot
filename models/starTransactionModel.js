@@ -13,6 +13,16 @@ const StarTransaction = sequelize.models.StarTransaction || sequelize.define('St
   tableName: 'StarTransactions',
   freezeTableName: true,
   timestamps: true,
+  indexes: [
+    // Index for user payment history
+    { fields: ['userId'] },
+    // Index for transaction lookups
+    { fields: ['telegramChargeId'], unique: true },
+    // Index for revenue analytics
+    { fields: ['createdAt'] },
+    // Composite index for user revenue queries
+    { fields: ['userId', 'createdAt'] },
+  ]
 });
 
 if (process.env.ALLOW_MODEL_SYNC === 'true') {

@@ -4,6 +4,7 @@
  */
 
 const { sequelize } = require('./connectionPool');
+const { DataTypes } = require('sequelize');
 
 async function createLockCreditsTable() {
   try {
@@ -23,30 +24,30 @@ async function createLockCreditsTable() {
     // Create table with correct schema matching the model
     await queryInterface.createTable(tableName, {
       id: {
-        type: 'INTEGER',
+        type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true
       },
       telegramId: {
-        type: 'BIGINT',
+        type: DataTypes.BIGINT,
         allowNull: false
       },
       minutes: {
-        type: 'INTEGER',
+        type: DataTypes.INTEGER,
         allowNull: false
       },
       consumed: {
-        type: 'INTEGER',
+        type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0
       },
       createdAt: {
-        type: 'DATETIME',
+        type: DataTypes.DATE,
         allowNull: false,
         defaultValue: sequelize.literal('CURRENT_TIMESTAMP')
       },
       updatedAt: {
-        type: 'DATETIME',
+        type: DataTypes.DATE,
         allowNull: false,
         defaultValue: sequelize.literal('CURRENT_TIMESTAMP')
       }

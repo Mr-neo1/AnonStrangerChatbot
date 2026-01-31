@@ -7,7 +7,7 @@
 const { redisClient } = require('../database/redisClient');
 const User = require('../models/userModel');
 
-const CACHE_TTL = 300; // 5 minutes cache
+const CACHE_TTL = 600; // 10 minutes cache (reduced DB load for high traffic)
 const CACHE_PREFIX = 'user:cache:';
 
 class UserCacheService {

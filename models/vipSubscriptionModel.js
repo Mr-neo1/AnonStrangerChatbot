@@ -10,6 +10,12 @@ const VipSubscription = sequelize.models.VipSubscription || sequelize.define('Vi
   tableName: 'VipSubscriptions',
   freezeTableName: true,
   timestamps: true,
+  indexes: [
+    // Index for expiry cleanup jobs
+    { fields: ['expiresAt'] },
+    // Index for source tracking (analytics)
+    { fields: ['source'] },
+  ]
 });
 
 // Runtime schema sync removed. Use offline migrations to alter production schemas.

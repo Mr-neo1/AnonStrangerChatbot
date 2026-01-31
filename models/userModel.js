@@ -34,6 +34,18 @@ const User = sequelize.define("User", {
     allowNull: true,
     defaultValue: 'Any'
   },
+  vipAgeMin: {
+    // VIP-specific age preference - minimum
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null
+  },
+  vipAgeMax: {
+    // VIP-specific age preference - maximum
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null
+  },
   hasStarted: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
@@ -58,10 +70,30 @@ const User = sequelize.define("User", {
     type: DataTypes.DATEONLY,
     allowNull: true,
   },
+  allowMedia: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    comment: 'Privacy setting: allow receiving media from partners'
+  },
 }, {
   tableName: 'User',
   freezeTableName: true,
   timestamps: true,
+  indexes: [
+    // Index on userId (primary key - auto-indexed)
+    // Index for banned user lookups
+    { fields: ['banned'] },
+    // Index for bot-specific queries
+    { fields: ['botId'] },
+    // Composite index for active user queries
+    { fields: ['banned', 'hasStarted'] },
+    // Index for gender-based matching
+    { fields: ['gender'] },
+    // Index for VIP gender preference
+    { fields: ['vipGender'] },
+    // Index for last active tracking
+    { fields: ['lastActiveDate'] },
+  ]
 });
 
 // For local dev; schema updates must be performed via offline migrations. Runtime model.sync has been removed to prevent accidental schema changes.

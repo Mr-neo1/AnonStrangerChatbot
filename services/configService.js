@@ -49,8 +49,6 @@ class ConfigService {
         updatedAt: new Date()
       });
 
-      // Log the change for audit
-      console.log(`[ConfigService] "${key}" updated to "${stringValue}" by admin ${adminId || 'system'}`);
       return true;
     } catch (error) {
       console.error(`ConfigService.set error for key "${key}":`, error.message);
@@ -145,13 +143,25 @@ class ConfigService {
       'admin_logs_channel': '',
       
       // Bot Management
-      'bot_tokens': process.env.BOT_TOKENS || process.env.BOT_TOKEN || ''
+      'bot_tokens': process.env.BOT_TOKENS || process.env.BOT_TOKEN || '',
+
+      // Feature toggles (mirrors env with safe fallbacks)
+      'ENABLE_STARS_PAYMENTS': process.env.ENABLE_STARS_PAYMENTS || false,
+      'ENABLE_VIP': process.env.ENABLE_VIP || false,
+      'ENABLE_LOCK_CHAT': process.env.ENABLE_LOCK_CHAT || false,
+      'ENABLE_REFERRALS': process.env.ENABLE_REFERRALS || false,
+      'ENABLE_ADMIN_ALERTS': process.env.ENABLE_ADMIN_ALERTS || false,
+      'ENABLE_CROSS_BOT_MATCHING': process.env.ENABLE_CROSS_BOT_MATCHING || false,
+      'ENABLE_AFFILIATE_SYSTEM': process.env.ENABLE_AFFILIATE_SYSTEM || false,
+      'ENABLE_ABUSE_DETECTION': process.env.ENABLE_ABUSE_DETECTION || false,
+      'MAINTENANCE_MODE': process.env.MAINTENANCE_MODE || false
     };
 
     for (const [key, defaultValue] of Object.entries(defaults)) {
       const existing = await AppConfig.findOne({ where: { key } });
       if (!existing) {
-        await this.set(key, defaultValue, 0); // 0 = system
+        const stringValue = typeof defaultValue === 'string' ? defaultValue : JSON.stringify(defaultValue);
+        await AppConfig.upsert({ key, value: stringValue, updatedAt: new Date() });
       }
     }
 

@@ -43,22 +43,26 @@ class ReferralService {
       // Do not fail the payment flow due to affiliate bookkeeping
     }
 
-    // 2) Referral milestone grants (every 5 invites => 15 VIP days)
+    // 2) Referral milestone grants (every 5 invites => configurable VIP days)
     try {
+      const ConfigService = require('./configService');
+      // Get referral VIP days from admin config (default 15)
+      const referralVipDays = await ConfigService.get('referral_vip_days', 15);
+      
       // count real referrals for inviter (unique invitedId)
       const count = await Referral.count({ where: { inviterId, status: 'accepted' }, transaction });
-      // For every 5 referrals grant 15 VIP days
+      // For every 5 referrals grant VIP days
       const grants = Math.floor(count / 5);
 
       // Count how many rewards previously granted (using AffiliateReward as record)
-      // Track by counting milestone rewards (each milestone = 15 days)
+      // Track by counting milestone rewards
       const prevMilestoneRewards = await AffiliateReward.count({ 
         where: { userId: inviterId, source: 'referral_milestone' }, 
         transaction 
       });
       const milestoneGrants = Math.max(0, grants - prevMilestoneRewards);
       if (milestoneGrants > 0) {
-        const daysToGrant = milestoneGrants * 15;
+        const daysToGrant = milestoneGrants * referralVipDays;
         await AffiliateReward.create({ userId: inviterId, vipDaysGranted: daysToGrant, source: 'referral_milestone' }, { transaction });
         const expiry = await VipService.activateVip(inviterId, daysToGrant, { source: 'referral', transaction, deferSetRedis: true });
         postActions.push(async () => { try { await VipService.setRedisVip(inviterId, expiry); } catch (err) { console.error('Referral milestone post-action error:', err); } });

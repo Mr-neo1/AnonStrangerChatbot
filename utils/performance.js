@@ -46,35 +46,41 @@ const rateLimiter = {
 const cleanup = {
   async cleanInactiveData() {
     try {
-// Only clean queue duplicates (safe) for both VIP and general queues
-    const keysHelper = require('../utils/redisKeys');
-    const botId = require('../config/config').BOT_ID || 'default';
-    const queueKeys = [keysHelper.QUEUE_VIP_KEY(botId), keysHelper.QUEUE_GENERAL_KEY(botId), 'queue:vip', 'queue:general'];
-    for (const key of queueKeys) {
-      const waiting = await redisClient.lRange(key, 0, -1);
-      const unique = [...new Set(waiting)];
-      if (waiting.length !== unique.length) {
-        await redisClient.del(key);
-        if (unique.length > 0) {
-          await redisClient.lPush(key, ...unique);
+      // Only clean queue duplicates (safe) for both VIP and general queues
+      const keysHelper = require('../utils/redisKeys');
+      const botId = require('../config/config').BOT_ID || 'default';
+      const queueKeys = [keysHelper.QUEUE_VIP_KEY(botId), keysHelper.QUEUE_GENERAL_KEY(botId), 'queue:vip', 'queue:general'];
+      
+      for (const key of queueKeys) {
+        try {
+          const waiting = await redisClient.lRange(key, 0, -1);
+          const unique = [...new Set(waiting)];
+          if (waiting.length !== unique.length) {
+            await redisClient.del(key);
+            if (unique.length > 0) {
+              await redisClient.lPush(key, ...unique);
+            }
+          }
+        } catch (e) {
+          // Ignore individual queue errors
         }
       }
-    }
       
       // Clean old rate limit keys only (safe) - Use SCAN instead of KEYS
       const pattern = 'rate:*';
       const rateLimitKeys = await scanKeys(redisClient, pattern, 100);
       
-      const pipeline = redisClient.multi();
-      
+      // Use individual commands instead of pipeline (more compatible)
       for (const key of rateLimitKeys) {
-        const ttl = await redisClient.ttl(key);
-        if (ttl === -1) {
-          pipeline.expire(key, 3600); // 1 hour expiry for rate limits
+        try {
+          const ttl = await redisClient.ttl(key);
+          if (ttl === -1) {
+            await redisClient.expire(key, 3600); // 1 hour expiry for rate limits
+          }
+        } catch (e) {
+          // Ignore individual key errors
         }
       }
-      
-      await pipeline.exec();
       
     } catch (error) {
       console.error('Cleanup error:', error);
@@ -88,14 +94,15 @@ const cleanup = {
       const pattern = 'pair:*';
       const pairKeys = await scanKeys(redisClient, pattern, 100);
       
-      const pipeline = redisClient.multi();
-      
+      // Use individual commands instead of pipeline (more compatible)
       for (const key of pairKeys) {
-        // Extend active chat sessions to 24 hours
-        pipeline.expire(key, 86400); // 24 hours
+        try {
+          // Extend active chat sessions to 24 hours
+          await redisClient.expire(key, 86400); // 24 hours
+        } catch (e) {
+          // Ignore individual key errors
+        }
       }
-      
-      await pipeline.exec();
     } catch (error) {
       console.error('Session extend error:', error);
     }

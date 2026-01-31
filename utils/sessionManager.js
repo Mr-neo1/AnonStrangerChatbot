@@ -27,23 +27,29 @@ class SessionManager {
       const pattern = 'pair:*';
       const pairKeys = await scanKeys(redisClient, pattern, 100);
       
-      const pipeline = redisClient.multi();
+      if (pairKeys.length === 0) return;
       
+      // Process individually instead of using pipeline (more compatible)
       for (const pairKey of pairKeys) {
-        const chatId = pairKey.split(':')[1];
-        
-        if (await this.isChatActive(chatId)) {
-          // Extend active chats to 6 hours
-          pipeline.expire(pairKey, 21600);
-        } else {
-          // Mark inactive chats for shorter expiry (2 hours)
-          pipeline.expire(pairKey, 7200);
+        try {
+          const chatId = pairKey.split(':')[1];
+          
+          if (await this.isChatActive(chatId)) {
+            // Extend active chats to 6 hours
+            await redisClient.expire(pairKey, 21600);
+          } else {
+            // Mark inactive chats for shorter expiry (2 hours)
+            await redisClient.expire(pairKey, 7200);
+          }
+        } catch (e) {
+          // Skip individual errors
         }
       }
-      
-      await pipeline.exec();
     } catch (error) {
-      console.error('Session extend error:', error);
+      // Only log if it's not a pipeline-related error
+      if (!error.message?.includes('pipeline') && !error.message?.includes('exec')) {
+        console.error('Session extend error:', error);
+      }
     }
   }
 
@@ -86,12 +92,25 @@ class SessionManager {
 }
 
 // Run smart session management
-setInterval(async () => {
-  await SessionManager.extendActiveChats();
-}, 1800000); // Every 30 minutes
+// OPTIMIZED: Store interval IDs for graceful shutdown
+const sessionIntervals = [];
 
-setInterval(async () => {
+sessionIntervals.push(setInterval(async () => {
+  await SessionManager.extendActiveChats();
+}, 1800000)); // Every 30 minutes
+
+sessionIntervals.push(setInterval(async () => {
   await SessionManager.cleanAbandonedSessions();
-}, 7200000); // Every 2 hours
+}, 7200000)); // Every 2 hours
+
+// Graceful shutdown handler
+SessionManager.shutdown = () => {
+  sessionIntervals.forEach(id => clearInterval(id));
+  console.log('✅ SessionManager intervals cleared');
+};
+
+// Register shutdown on process exit
+process.on('SIGINT', () => SessionManager.shutdown());
+process.on('SIGTERM', () => SessionManager.shutdown());
 
 module.exports = SessionManager;

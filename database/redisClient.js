@@ -15,6 +15,9 @@ if (!config.REDIS_URL || config.REDIS_URL === '') {
   const redisClient = createClient({
     url: config.REDIS_URL,
     socket: {
+        connectTimeout: 10000,
+        keepAlive: 5000,
+        noDelay: true, // Disable Nagle's algorithm for lower latency
       reconnectStrategy: (retries) => {
         if (retries > 10) {
           console.error("❌ Redis: Max reconnection attempts reached");
@@ -24,7 +27,9 @@ if (!config.REDIS_URL || config.REDIS_URL === '') {
         console.log(`⚠️ Redis: Reconnecting in ${delay}ms (attempt ${retries})...`);
         return delay;
       }
-    }
+    },
+    // Enable pipelining for better throughput (10-15k DAU)
+    commandsQueueMaxLength: 10000,
   });
   
   let isConnected = false;

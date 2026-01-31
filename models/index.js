@@ -8,6 +8,15 @@ const StarTransaction = require('./starTransactionModel');
 const LockHistory = require('./lockChatModel');
 const Referral = require('./referralModel');
 const AffiliateReward = require('./affiliateRewardModel');
+const Ban = require('./banModel');
+const AppConfig = require('./appConfigModel');
+
+// New models for enhanced features
+const ChatRating = require('./chatRatingModel');
+const AdminAuditLog = require('./adminAuditLogModel');
+const AnalyticsStats = require('./analyticsStatsModel');
+const ScheduledMaintenance = require('./scheduledMaintenanceModel');
+const AdminLoginToken = require('./adminLoginTokenModel');
 
 async function ensureIndexes() {
   const tasks = [];
@@ -45,4 +54,12 @@ module.exports = {
   LockHistory,
   Referral,
   AffiliateReward,
+  Ban,
+  AppConfig,
+  // New models
+  ChatRating,
+  AdminAuditLog,
+  AnalyticsStats,
+  ScheduledMaintenance,
+  AdminLoginToken,
 };

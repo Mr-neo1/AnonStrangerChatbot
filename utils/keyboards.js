@@ -20,8 +20,8 @@ const mainKeyboard = makeReplyMarkup([
 const menuKeyboard = makeReplyMarkup([
   [{ text: "👤 My Profile" }, { text: "📊 My Stats" }],
   [{ text: "⚙️ Settings" }, { text: "📜 Rules" }],
-  [{ text: "🆔 My ID" }, { text: "⭐ Buy Premium" }],
-  [{ text: "⭐ Rewards / Redeem" }, { text: "🔙 Back" }]
+  [{ text: "⭐ Buy Premium" }, { text: "⭐ Rewards / Redeem" }],
+  [{ text: "🔙 Back" }]
 ], { persistent: true });
 
 // Gender selection keyboard
@@ -47,16 +47,24 @@ const chatActive = makeReplyMarkup([
 const getSettingsKeyboard = (isVip = false) => {
   const baseButtons = [
     [{ text: "👤 Update Gender" }, { text: "🎂 Update Age" }],
+    [{ text: "🖼️ Media Privacy" }],
     [{ text: "📊 View Stats" }, { text: "🔙 Back" }]
   ];
   
-  // Add VIP gender preference option for VIP users
+  // Add VIP preference options for VIP users
   if (isVip) {
-    baseButtons.splice(1, 0, [{ text: "⭐ Partner Gender Preference" }]);
+    baseButtons.splice(1, 0, [{ text: "⭐ Partner Gender Preference" }, { text: "🎯 Age Preference" }]);
   }
   
   return makeReplyMarkup(baseButtons, { persistent: true });
 };
+
+// VIP Gender Selection (with Any option)
+const getVipGenderSelection = () => makeReplyMarkup([
+  [{ text: "👨 Male" }, { text: "👩 Female" }],
+  [{ text: "🌈 Other" }, { text: "🌐 Any" }],
+  [{ text: "🔙 Back" }]
+], { one_time: true });
 
 // Backwards compatible
 const settingsMenu = getSettingsKeyboard(false);
@@ -117,6 +125,7 @@ module.exports = {
   getLockDurationKeyboard,
   getBuyLockKeyboard,
   getMainKeyboardForceClear, // Force clear old keyboard before sending new main keyboard
+  getVipGenderSelection, // VIP gender preference keyboard
   // Backwards-compatible properties
   mainMenu: mainKeyboard,
   menuKeyboard: menuKeyboard,

@@ -2,8 +2,9 @@ const { REQUIRED_CHANNEL_1, REQUIRED_CHANNEL_2 } = require("../config/config");
 const ConfigService = require("../services/configService");
 const { redisClient } = require("../database/redisClient");
 
-// Cache channel verification results (5 minute TTL)
-const CHANNEL_CACHE_TTL = 300; // 5 minutes
+// Cache channel verification results
+// OPTIMIZED: Increased from 5 to 30 minutes for verified users (fewer Redis reads)
+const CHANNEL_CACHE_TTL = 1800; // 30 minutes (user unlikely to leave channel frequently)
 
 const checkUserJoined = async (bot, userId, chatId) => {
   // Get bot instance - fallback if not provided
@@ -77,20 +78,32 @@ const checkUserJoined = async (bot, userId, chatId) => {
   const missing = [];
   const allowedStatuses = ["member", "administrator", "creator"];
 
+  // Track channels where bot is not admin (config error)
+  const botNotAdminChannels = [];
+
   if (ch1) {
     try {
       if (!bot.getChatMember) {
         console.error('Bot instance missing getChatMember method');
-        return true; // Fail open
-      }
-      const member1 = await bot.getChatMember(ch1, userId);
-      if (!member1 || !allowedStatuses.includes(member1.status)) {
-        missing.push(ch1);
+        botNotAdminChannels.push(ch1);
+      } else {
+        const member1 = await bot.getChatMember(ch1, userId);
+        if (!member1 || !allowedStatuses.includes(member1.status)) {
+          missing.push(ch1);
+        }
       }
     } catch (err) {
-      // Any error means enforcement fails and user is treated as NOT joined
-      console.error(`Error checking REQUIRED_CHANNEL_1 (${ch1}) membership:`, err);
-      missing.push(ch1);
+      // Check if it's a "member list is inaccessible" error (bot not admin in channel)
+      const errMsg = err?.message || err?.response?.body?.description || '';
+      if (errMsg.includes('member list is inaccessible') || errMsg.includes('chat not found') || errMsg.includes('bot is not a member')) {
+        // Bot doesn't have admin access to this channel - BLOCK ACCESS
+        console.error(`🚫 CONFIGURATION ERROR: Bot is not admin in channel ${ch1}. Users will be blocked until this is fixed.`);
+        botNotAdminChannels.push(ch1);
+      } else {
+        // Other errors - user treated as NOT joined
+        console.error(`Error checking channel ${ch1} membership:`, errMsg);
+        missing.push(ch1);
+      }
     }
   }
 
@@ -98,16 +111,37 @@ const checkUserJoined = async (bot, userId, chatId) => {
     try {
       if (!bot.getChatMember) {
         console.error('Bot instance missing getChatMember method');
-        return true; // Fail open
-      }
-      const member2 = await bot.getChatMember(ch2, userId);
-      if (!member2 || !allowedStatuses.includes(member2.status)) {
-        missing.push(ch2);
+        botNotAdminChannels.push(ch2);
+      } else {
+        const member2 = await bot.getChatMember(ch2, userId);
+        if (!member2 || !allowedStatuses.includes(member2.status)) {
+          missing.push(ch2);
+        }
       }
     } catch (err) {
-      console.error(`Error checking REQUIRED_CHANNEL_2 (${ch2}) membership:`, err);
-      missing.push(ch2);
+      // Check if it's a "member list is inaccessible" error (bot not admin in channel)
+      const errMsg = err?.message || err?.response?.body?.description || '';
+      if (errMsg.includes('member list is inaccessible') || errMsg.includes('chat not found') || errMsg.includes('bot is not a member')) {
+        // Bot doesn't have admin access to this channel - BLOCK ACCESS
+        console.error(`🚫 CONFIGURATION ERROR: Bot is not admin in channel ${ch2}. Users will be blocked until this is fixed.`);
+        botNotAdminChannels.push(ch2);
+      } else {
+        // Other errors - user treated as NOT joined
+        console.error(`Error checking channel ${ch2} membership:`, errMsg);
+        missing.push(ch2);
+      }
     }
+  }
+
+  // CRITICAL: If bot is not admin in any channel, block user and show admin error
+  if (botNotAdminChannels.length > 0) {
+    try {
+      const adminErrorMsg = `⚠️ *Bot Configuration Error*\n\nThe bot cannot verify channel membership because it is not added as an admin to the required channel(s):\n\n${botNotAdminChannels.map(c => `• ${c}`).join('\n')}\n\n*Please contact the bot administrator to fix this issue.*`;
+      await bot.sendMessage(chatId, adminErrorMsg, { parse_mode: 'Markdown' }).catch(() => {});
+    } catch (e) {
+      console.error('Error sending bot config error message:', e);
+    }
+    return false; // BLOCK access until admin fixes configuration
   }
 
   if (missing.length > 0) {

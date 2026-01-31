@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Admin Panel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom minimal styles */
+    .tab-active { border-bottom: 3px solid #6366f1; color: #6366f1; }
+    .toggle-on { background: #22c55e; }
+    .toggle-off { background: #dc2626; }
+    .toast { animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    .spinner { border: 2px solid #f3f3f3; border-top: 2px solid #6366f1; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn { transition: all 0.15s; }
+    .btn:active { transform: scale(0.97); }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <!-- Login Screen -->
+  <div id="loginScreen" class="flex items-center justify-center min-h-screen">
+    <div class="bg-gray-800 p-8 rounded-xl shadow-xl w-full max-w-md">
+      <h1 class="text-2xl font-bold text-center mb-6 text-indigo-400">🤖 Bot Admin Panel</h1>
+      <form id="loginForm" class="space-y-4">
+        <input type="text" id="username" placeholder="Username" class="w-full p-3 bg-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+        <input type="password" id="password" placeholder="Password" class="w-full p-3 bg-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+        <button type="submit" class="btn w-full p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium">Login</button>
+        <p id="loginError" class="text-red-400 text-center hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard (Hidden until login) -->
+  <div id="dashboard" class="hidden">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
+      <h1 class="text-xl font-bold text-indigo-400">🤖 Admin Panel</h1>
+      <div class="flex items-center gap-4">
+        <span id="adminName" class="text-gray-400 text-sm"></span>
+        <button id="logoutBtn" class="btn px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm">Logout</button>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="bg-gray-800 border-b border-gray-700 px-6 overflow-x-auto">
+      <div class="flex gap-6 text-sm font-medium">
+        <button class="tab py-4 px-1 tab-active" data-tab="overview">📊 Overview</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="analytics">📈 Analytics</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="config">⚙️ Config</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="messages">💬 Messages</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="users">👥 Users</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="bots">🤖 Bots</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="vip">⭐ VIP Plans</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="broadcast">📢 Broadcast</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="audit">📝 Audit Logs</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="export">📤 Export</button>
+        <button class="tab py-4 px-1 text-gray-400 hover:text-gray-200" data-tab="maintenance">🔧 Maintenance</button>
+      </div>
+    </nav>
+
+    <!-- Content Area -->
+    <main class="p-6 max-w-7xl mx-auto">
+      <!-- Overview Tab -->
+      <section id="tab-overview" class="tab-content">
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-totalUsers" class="text-3xl font-bold text-blue-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">Total Users</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-onlineUsers" class="text-3xl font-bold text-emerald-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">🟢 Online Now</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-vipActive" class="text-3xl font-bold text-yellow-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">Active VIP</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-todayUsers" class="text-3xl font-bold text-green-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">Today Joined</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-activeChats" class="text-3xl font-bold text-purple-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">Active Chats</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-queueSize" class="text-3xl font-bold text-cyan-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">In Queue</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div id="stat-bannedUsers" class="text-3xl font-bold text-red-400">-</div>
+            <div class="text-gray-400 text-sm mt-1">Banned</div>
+          </div>
+        </div>
+        
+        <!-- Active Users Section -->
+        <div class="bg-gray-800 rounded-xl p-6 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">🟢 Live Active Users</h3>
+            <button onclick="loadActiveUsers()" class="btn px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-sm">🔄 Refresh</button>
+          </div>
+          <div id="activeUsersList" class="grid md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+            <p class="text-gray-400">Click refresh to load active users...</p>
+          </div>
+        </div>
+        
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h3 class="text-lg font-medium mb-4">Quick Actions</h3>
+          <div class="flex flex-wrap gap-3">
+            <button onclick="refreshStats()" class="btn px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg">🔄 Refresh Stats</button>
+            <button onclick="showTab('broadcast')" class="btn px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg">📢 Send Broadcast</button>
+            <button onclick="showTab('users')" class="btn px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg">👥 Manage Users</button>
+            <button onclick="showTab('config')" class="btn px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg">⚙️ Settings</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Config Tab -->
+      <section id="tab-config" class="tab-content hidden">
+        <div class="grid md:grid-cols-2 gap-6">
+          <!-- Feature Flags -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">🎛️ Feature Flags</h3>
+            <div class="space-y-4">
+              <div class="flex justify-between items-center">
+                <span>Stars Payments</span>
+                <button onclick="toggleConfig('ENABLE_STARS_PAYMENTS')" id="toggle-ENABLE_STARS_PAYMENTS" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>VIP System</span>
+                <button onclick="toggleConfig('ENABLE_VIP')" id="toggle-ENABLE_VIP" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Lock Chat</span>
+                <button onclick="toggleConfig('ENABLE_LOCK_CHAT')" id="toggle-ENABLE_LOCK_CHAT" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Referrals</span>
+                <button onclick="toggleConfig('ENABLE_REFERRALS')" id="toggle-ENABLE_REFERRALS" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Admin Alerts</span>
+                <button onclick="toggleConfig('ENABLE_ADMIN_ALERTS')" id="toggle-ENABLE_ADMIN_ALERTS" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Cross-Bot Matching</span>
+                <button onclick="toggleConfig('ENABLE_CROSS_BOT_MATCHING')" id="toggle-ENABLE_CROSS_BOT_MATCHING" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Affiliate System</span>
+                <button onclick="toggleConfig('ENABLE_AFFILIATE_SYSTEM')" id="toggle-ENABLE_AFFILIATE_SYSTEM" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>Abuse Detection</span>
+                <button onclick="toggleConfig('ENABLE_ABUSE_DETECTION')" id="toggle-ENABLE_ABUSE_DETECTION" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center border-t border-gray-700 pt-4">
+                <span class="text-red-400 font-medium">⚠️ Maintenance Mode</span>
+                <button onclick="toggleConfig('MAINTENANCE_MODE')" id="toggle-MAINTENANCE_MODE" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lock Chat Pricing -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">🔒 Lock Chat Pricing (Stars)</h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">5 Minutes</label>
+                <input type="number" id="lock_chat_5min_price" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="15">
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">10 Minutes</label>
+                <input type="number" id="lock_chat_10min_price" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="25">
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">15 Minutes</label>
+                <input type="number" id="lock_chat_15min_price" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="35">
+              </div>
+              <button onclick="saveLockPricing()" class="btn w-full p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg">Save Lock Pricing</button>
+            </div>
+          </div>
+
+          <!-- Required Channels -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">📢 Required Channels</h3>
+            <div class="space-y-4">
+              <div class="flex justify-between items-center mb-4">
+                <span>Enable Channel Requirement</span>
+                <button onclick="toggleConfig('required_channel_enabled')" id="toggle-required_channel_enabled" class="w-12 h-6 rounded-full toggle-off relative">
+                  <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+                </button>
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">Channel 1 (e.g., @channel)</label>
+                <input type="text" id="required_channel_1" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="@yourchannel1">
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">Channel 2 (optional)</label>
+                <input type="text" id="required_channel_2" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="@yourchannel2">
+              </div>
+              <button onclick="saveChannels()" class="btn w-full p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg">Save Channels</button>
+            </div>
+          </div>
+
+          <!-- Referral Settings -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">🎁 Referral Settings</h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">Referral VIP Days Reward</label>
+                <input type="number" id="referral_vip_days" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="10">
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-1">Affiliate Commission (%)</label>
+                <input type="number" id="affiliate_commission" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="0.8" step="0.1">
+              </div>
+              <button onclick="saveReferral()" class="btn w-full p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg">Save Referral Settings</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Messages Tab -->
+      <section id="tab-messages" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h3 class="text-lg font-medium mb-4">💬 Customize Bot Messages</h3>
+          <p class="text-gray-400 text-sm mb-6">Customize the messages users see. Supports Telegram Markdown formatting.</p>
+          
+          <div class="grid md:grid-cols-2 gap-6" id="messagesContainer">
+            <!-- Messages will be populated here -->
+          </div>
+          
+          <div class="mt-6 pt-6 border-t border-gray-700">
+            <button onclick="saveAllMessages()" class="btn px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg">💾 Save All Messages</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Users Tab -->
+      <section id="tab-users" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <div class="flex flex-col md:flex-row gap-4 mb-6">
+            <input type="text" id="userSearch" placeholder="Search by User ID..." class="flex-1 p-3 bg-gray-700 rounded-lg" onkeyup="if(event.key==='Enter')searchUsers()">
+            <select id="userFilter" class="p-3 bg-gray-700 rounded-lg" onchange="searchUsers()">
+              <option value="all">All Users</option>
+              <option value="banned">Banned Only</option>
+              <option value="vip">VIP Only</option>
+            </select>
+            <button onclick="searchUsers()" class="btn px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg">Search</button>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-gray-400 border-b border-gray-700">
+                  <th class="p-3">User ID</th>
+                  <th class="p-3">Telegram ID</th>
+                  <th class="p-3">Gender</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Bot</th>
+                  <th class="p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usersList" class="divide-y divide-gray-700">
+                <!-- Users populated here -->
+              </tbody>
+            </table>
+          </div>
+          
+          <div id="usersPagination" class="flex justify-center gap-2 mt-4"></div>
+        </div>
+      </section>
+
+      <!-- Bots Tab -->
+      <section id="tab-bots" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">🤖 Bot Management</h3>
+            <button onclick="restartBots()" class="btn px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg flex items-center gap-2">
+              <span>🔄</span> Restart All Bots
+            </button>
+          </div>
+          <div id="botsList" class="space-y-4">
+            <!-- Bots populated here -->
+          </div>
+          
+          <div class="mt-6 pt-6 border-t border-gray-700">
+            <h4 class="font-medium mb-3">➕ Add New Bot</h4>
+            <div class="flex gap-4">
+              <input type="text" id="newBotToken" class="flex-1 p-3 bg-gray-700 rounded-lg font-mono text-sm" placeholder="Enter bot token (e.g., 123456789:ABC-DEF...)">
+              <button onclick="addBot()" class="btn px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg">Add Bot</button>
+            </div>
+            <p class="text-gray-400 text-sm mt-2">💡 After adding/removing bots, click "Restart All Bots" to apply changes.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIP Plans Tab -->
+      <section id="tab-vip" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">⭐ VIP Subscription Plans</h3>
+            <div class="flex items-center gap-4">
+              <span class="text-gray-400 text-sm">VIP System</span>
+              <button onclick="toggleConfig('ENABLE_VIP')" id="toggle-vip-tab-ENABLE_VIP" class="w-12 h-6 rounded-full toggle-off relative">
+                <span class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
+              </button>
+            </div>
+          </div>
+          
+          <div id="vipPlansList" class="space-y-4 mb-6">
+            <!-- VIP plans populated here -->
+          </div>
+          
+          <div class="border-t border-gray-700 pt-6">
+            <h4 class="font-medium mb-4">➕ Add New Plan</h4>
+            <div class="grid md:grid-cols-5 gap-4">
+              <input type="text" id="newPlanName" placeholder="Plan Name (e.g., Premium)" class="p-3 bg-gray-700 rounded-lg">
+              <input type="number" id="newPlanDays" placeholder="Duration (days)" class="p-3 bg-gray-700 rounded-lg" min="1">
+              <input type="number" id="newPlanStars" placeholder="Price (⭐ Stars)" class="p-3 bg-gray-700 rounded-lg" min="1">
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="newPlanEnabled" checked class="w-5 h-5">
+                <label for="newPlanEnabled" class="text-sm">Enabled</label>
+              </div>
+              <button onclick="addVipPlan()" class="btn p-3 bg-green-600 hover:bg-green-700 rounded-lg">Add Plan</button>
+            </div>
+          </div>
+          
+          <div class="border-t border-gray-700 pt-6 mt-6">
+            <h4 class="font-medium mb-4">📊 VIP Statistics</h4>
+            <div class="grid md:grid-cols-3 gap-4">
+              <div class="bg-gray-700 rounded-lg p-4 text-center">
+                <div id="vip-stat-active" class="text-2xl font-bold text-yellow-400">-</div>
+                <div class="text-gray-400 text-sm mt-1">Active VIP Users</div>
+              </div>
+              <div class="bg-gray-700 rounded-lg p-4 text-center">
+                <div id="vip-stat-revenue" class="text-2xl font-bold text-green-400">-</div>
+                <div class="text-gray-400 text-sm mt-1">Total Plans</div>
+              </div>
+              <div class="bg-gray-700 rounded-lg p-4 text-center">
+                <div id="vip-stat-popular" class="text-2xl font-bold text-blue-400">-</div>
+                <div class="text-gray-400 text-sm mt-1">Most Popular</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Broadcast Tab -->
+      <section id="tab-broadcast" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6 max-w-2xl">
+          <h3 class="text-lg font-medium mb-4">📢 Broadcast Message</h3>
+          <div class="space-y-4">
+            <select id="broadcastAudience" class="w-full p-3 bg-gray-700 rounded-lg">
+              <option value="all">All Users</option>
+              <option value="vip">VIP Users Only</option>
+            </select>
+            <textarea id="broadcastMessage" rows="6" class="w-full p-3 bg-gray-700 rounded-lg" placeholder="Enter your message... (supports Telegram Markdown)"></textarea>
+            <button onclick="sendBroadcast()" class="btn w-full p-3 bg-green-600 hover:bg-green-700 rounded-lg">📢 Send Broadcast</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analytics Tab -->
+      <section id="tab-analytics" class="tab-content hidden">
+        <div class="space-y-6">
+          <!-- Date Range Selector -->
+          <div class="bg-gray-800 rounded-xl p-4">
+            <div class="flex flex-wrap gap-4 items-center">
+              <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-400">From:</label>
+                <input type="date" id="analyticsStartDate" class="p-2 bg-gray-700 rounded-lg text-sm">
+              </div>
+              <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-400">To:</label>
+                <input type="date" id="analyticsEndDate" class="p-2 bg-gray-700 rounded-lg text-sm">
+              </div>
+              <div class="flex gap-2">
+                <button onclick="setDateRange(7)" class="btn px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">Last 7 days</button>
+                <button onclick="setDateRange(30)" class="btn px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">Last 30 days</button>
+                <button onclick="setDateRange(90)" class="btn px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">Last 90 days</button>
+              </div>
+              <button onclick="loadAnalytics()" class="btn px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm">📊 Load Data</button>
+            </div>
+          </div>
+
+          <!-- Charts -->
+          <div class="grid md:grid-cols-2 gap-6">
+            <div class="bg-gray-800 rounded-xl p-6">
+              <h4 class="text-lg font-medium mb-4">👥 User Growth</h4>
+              <canvas id="userGrowthChart" height="200"></canvas>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-6">
+              <h4 class="text-lg font-medium mb-4">💬 Chat Activity</h4>
+              <canvas id="chatActivityChart" height="200"></canvas>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-6">
+              <h4 class="text-lg font-medium mb-4">⭐ VIP Revenue</h4>
+              <canvas id="vipRevenueChart" height="200"></canvas>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-6">
+              <h4 class="text-lg font-medium mb-4">⭐ Ratings Distribution</h4>
+              <canvas id="ratingsChart" height="200"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Audit Logs Tab -->
+      <section id="tab-audit" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <div class="flex flex-wrap gap-4 items-center mb-4">
+            <h3 class="text-lg font-medium">📝 Admin Audit Logs</h3>
+            <select id="auditCategory" class="p-2 bg-gray-700 rounded-lg text-sm">
+              <option value="">All Categories</option>
+              <option value="auth">🔐 Authentication</option>
+              <option value="user">👤 User Actions</option>
+              <option value="config">⚙️ Config Changes</option>
+              <option value="broadcast">📢 Broadcasts</option>
+              <option value="bot">🤖 Bot Management</option>
+              <option value="export">📤 Exports</option>
+              <option value="maintenance">🔧 Maintenance</option>
+              <option value="report">⚠️ Reports</option>
+            </select>
+            <button onclick="loadAuditLogs()" class="btn px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm">🔄 Load Logs</button>
+          </div>
+          <div id="auditLogsList" class="space-y-2 max-h-96 overflow-y-auto">
+            <p class="text-gray-500 text-center py-8">Click "Load Logs" to view audit history</p>
+          </div>
+          <div class="flex justify-center gap-2 mt-4">
+            <button id="auditPrevBtn" onclick="loadAuditLogs('prev')" class="btn px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm" disabled>◀ Previous</button>
+            <span id="auditPageInfo" class="px-4 py-2 text-gray-400">Page 1</span>
+            <button id="auditNextBtn" onclick="loadAuditLogs('next')" class="btn px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">Next ▶</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Export Tab -->
+      <section id="tab-export" class="tab-content hidden">
+        <div class="bg-gray-800 rounded-xl p-6 max-w-2xl">
+          <h3 class="text-lg font-medium mb-4">📤 Data Export</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-2">Select Table:</label>
+              <select id="exportTable" class="w-full p-3 bg-gray-700 rounded-lg">
+                <option value="users">👥 Users</option>
+                <option value="vip_subscriptions">⭐ VIP Subscriptions</option>
+                <option value="star_transactions">💫 Star Transactions</option>
+                <option value="referrals">🎁 Referrals</option>
+                <option value="bans">🚫 Bans</option>
+                <option value="chat_ratings">⭐ Chat Ratings</option>
+                <option value="audit_logs">📝 Audit Logs</option>
+                <option value="lock_credits">🔒 Lock Credits</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-2">Format:</label>
+              <div class="flex gap-3">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="exportFormat" value="csv" checked class="text-indigo-600">
+                  <span>CSV</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="exportFormat" value="json" class="text-indigo-600">
+                  <span>JSON</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="exportFormat" value="excel" class="text-indigo-600">
+                  <span>Excel</span>
+                </label>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <div class="flex-1">
+                <label class="block text-sm text-gray-400 mb-2">Limit (optional):</label>
+                <input type="number" id="exportLimit" placeholder="All records" class="w-full p-3 bg-gray-700 rounded-lg">
+              </div>
+            </div>
+            <button onclick="exportData()" class="btn w-full p-3 bg-green-600 hover:bg-green-700 rounded-lg">📥 Download Export</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Maintenance Tab -->
+      <section id="tab-maintenance" class="tab-content hidden">
+        <div class="space-y-6 max-w-3xl">
+          <!-- Maintenance Mode Toggle -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <div class="flex justify-between items-center">
+              <div>
+                <h3 class="text-lg font-medium">🔧 Maintenance Mode</h3>
+                <p class="text-gray-400 text-sm mt-1">When enabled, bot will show maintenance message to users</p>
+              </div>
+              <button id="maintenanceToggle" onclick="toggleMaintenance()" class="btn px-6 py-2 rounded-lg font-medium"></button>
+            </div>
+          </div>
+
+          <!-- Schedule Maintenance -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">📅 Schedule Maintenance</h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-gray-400 mb-2">Title:</label>
+                <input type="text" id="maintenanceTitle" placeholder="e.g., Database Upgrade" class="w-full p-3 bg-gray-700 rounded-lg">
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm text-gray-400 mb-2">Start Time:</label>
+                  <input type="datetime-local" id="maintenanceStart" class="w-full p-3 bg-gray-700 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm text-gray-400 mb-2">End Time:</label>
+                  <input type="datetime-local" id="maintenanceEnd" class="w-full p-3 bg-gray-700 rounded-lg">
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="maintenanceNotify" checked class="rounded">
+                <label for="maintenanceNotify" class="text-sm text-gray-300">Notify users about scheduled maintenance</label>
+              </div>
+              <button onclick="scheduleMaintenance()" class="btn w-full p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg">📅 Schedule Maintenance</button>
+            </div>
+          </div>
+
+          <!-- Scheduled Maintenance List -->
+          <div class="bg-gray-800 rounded-xl p-6">
+            <h3 class="text-lg font-medium mb-4">📋 Scheduled Maintenance Windows</h3>
+            <div id="maintenanceList" class="space-y-2">
+              <p class="text-gray-500 text-center py-4">No scheduled maintenance</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    // ==================== STATE ====================
+    let authToken = localStorage.getItem('adminToken');
+    let config = {};
+    let currentUsersPage = 1;
+    let vipPlans = [];
+    let botMessages = {};
+
+    // ==================== API ====================
+    async function api(endpoint, options = {}) {
+      const res = await fetch(`/api/admin${endpoint}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Token': authToken,
+          ...options.headers
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 401) {
+          logout();
+          throw new Error('Session expired');
+        }
+        throw new Error(data.error || 'Request failed');
+      }
+      return data;
+    }
+
+    // ==================== AUTH ====================
+    document.getElementById('loginForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          authToken = data.token;
+          localStorage.setItem('adminToken', authToken);
+          document.getElementById('adminName').textContent = username;
+          showDashboard();
+        } else {
+          document.getElementById('loginError').textContent = data.error;
+          document.getElementById('loginError').classList.remove('hidden');
+        }
+      } catch (err) {
+        toast('Login failed', 'error');
+      }
+    };
+
+    function logout() {
+      api('/logout', { method: 'POST' }).catch(() => {});
+      localStorage.removeItem('adminToken');
+      authToken = null;
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('loginScreen').classList.remove('hidden');
+    }
+
+    document.getElementById('logoutBtn').onclick = logout;
+
+    // ==================== DASHBOARD ====================
+    async function showDashboard() {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      
+      await Promise.all([loadStats(), loadConfig()]);
+    }
+
+    async function loadStats() {
+      try {
+        const stats = await api('/stats');
+        for (const [key, value] of Object.entries(stats)) {
+          const el = document.getElementById(`stat-${key}`);
+          if (el) el.textContent = typeof value === 'number' ? value.toLocaleString() : value;
+        }
+        // Update VIP stats on VIP tab as well
+        const vipStat = document.getElementById('vip-stat-active');
+        if (vipStat && stats.vipActive !== undefined) {
+          vipStat.textContent = stats.vipActive.toLocaleString();
+        }
+        const planCount = document.getElementById('vip-stat-revenue');
+        if (planCount && vipPlans) {
+          planCount.textContent = vipPlans.length;
+        }
+        const popular = document.getElementById('vip-stat-popular');
+        if (popular && vipPlans && vipPlans.length > 0) {
+          popular.textContent = vipPlans[0].name || 'N/A';
+        }
+      } catch (err) {
+        toast('Failed to load stats', 'error');
+      }
+    }
+
+    async function refreshStats() {
+      toast('Refreshing stats...', 'info');
+      await loadStats();
+      await loadActiveUsers();
+      toast('Stats updated!', 'success');
+    }
+
+    async function loadActiveUsers() {
+      try {
+        const data = await api('/active-users');
+        const container = document.getElementById('activeUsersList');
+        
+        if (!data.activeUsers || data.activeUsers.length === 0) {
+          container.innerHTML = '<p class="text-gray-400 col-span-full">No active users at the moment.</p>';
+          return;
+        }
+        
+        container.innerHTML = data.activeUsers.map(u => `
+          <div class="p-3 bg-gray-700 rounded-lg flex justify-between items-center">
+            <div>
+              <span class="font-mono text-sm">${u.userId}</span>
+              <span class="ml-2 text-xs ${u.status === 'chatting' ? 'text-green-400' : 'text-yellow-400'}">
+                ${u.status === 'chatting' ? '💬 Chatting' : '🔍 Searching'}
+              </span>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="banUser('${u.userId}')" class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs">Ban</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('activeUsersList').innerHTML = '<p class="text-red-400">Failed to load active users</p>';
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        config = await api('/config');
+        
+        // Update toggles
+        const toggleKeys = [
+          'ENABLE_STARS_PAYMENTS', 'ENABLE_VIP', 'ENABLE_LOCK_CHAT', 
+          'ENABLE_REFERRALS', 'ENABLE_ADMIN_ALERTS', 'ENABLE_CROSS_BOT_MATCHING',
+          'ENABLE_AFFILIATE_SYSTEM', 'ENABLE_ABUSE_DETECTION', 'MAINTENANCE_MODE',
+          'required_channel_enabled'
+        ];
+        
+        toggleKeys.forEach(key => {
+          const btn = document.getElementById(`toggle-${key}`);
+          if (btn) updateToggleUI(btn, config[key] === true || config[key] === 'true');
+          // Also update VIP tab toggle
+          const vipTabBtn = document.getElementById(`toggle-vip-tab-${key}`);
+          if (vipTabBtn) updateToggleUI(vipTabBtn, config[key] === true || config[key] === 'true');
+        });
+        
+        // Update inputs
+        ['lock_chat_5min_price', 'lock_chat_10min_price', 'lock_chat_15min_price',
+         'required_channel_1', 'required_channel_2', 'referral_vip_days', 'affiliate_commission'
+        ].forEach(key => {
+          const el = document.getElementById(key);
+          if (el) el.value = config[key] || '';
+        });
+        
+        // Load VIP plans
+        vipPlans = config.vip_plans_config || [];
+        renderVipPlans();
+        
+      } catch (err) {
+        toast('Failed to load config', 'error');
+      }
+    }
+
+    function updateToggleUI(btn, isOn) {
+      if (!btn) return;
+      btn.classList.remove('toggle-on', 'toggle-off');
+      btn.classList.add(isOn ? 'toggle-on' : 'toggle-off');
+      const dot = btn.querySelector('span');
+      if (dot) dot.style.transform = isOn ? 'translateX(24px)' : 'translateX(0)';
+    }
+
+    async function toggleConfig(key) {
+      const btn = document.getElementById(`toggle-${key}`) || document.getElementById(`toggle-vip-tab-${key}`);
+      const currentValue = config[key] === true || config[key] === 'true';
+      const newValue = !currentValue;
+      
+      try {
+        await api('/config', { method: 'POST', body: { key, value: newValue } });
+        config[key] = newValue;
+        // Update both toggles if they exist
+        updateToggleUI(document.getElementById(`toggle-${key}`), newValue);
+        updateToggleUI(document.getElementById(`toggle-vip-tab-${key}`), newValue);
+        toast(`${key} ${newValue ? 'enabled' : 'disabled'}`, 'success');
+      } catch (err) {
+        toast(`Failed to update ${key}`, 'error');
+      }
+    }
+
+    async function toggleMaintenance() {
+      await toggleConfig('MAINTENANCE_MODE');
+    }
+
+    async function saveLockPricing() {
+      try {
+        const configs = [
+          { key: 'lock_chat_5min_price', value: parseInt(document.getElementById('lock_chat_5min_price').value) || 15 },
+          { key: 'lock_chat_10min_price', value: parseInt(document.getElementById('lock_chat_10min_price').value) || 25 },
+          { key: 'lock_chat_15min_price', value: parseInt(document.getElementById('lock_chat_15min_price').value) || 35 }
+        ];
+        await api('/config/bulk', { method: 'POST', body: { configs } });
+        toast('Lock pricing saved!', 'success');
+      } catch (err) {
+        toast('Failed to save lock pricing', 'error');
+      }
+    }
+
+    async function saveChannels() {
+      try {
+        const configs = [
+          { key: 'required_channel_1', value: document.getElementById('required_channel_1').value.trim() },
+          { key: 'required_channel_2', value: document.getElementById('required_channel_2').value.trim() }
+        ];
+        await api('/config/bulk', { method: 'POST', body: { configs } });
+        toast('Channels saved!', 'success');
+      } catch (err) {
+        toast('Failed to save channels', 'error');
+      }
+    }
+
+    async function saveReferral() {
+      try {
+        const configs = [
+          { key: 'referral_vip_days', value: parseInt(document.getElementById('referral_vip_days').value) || 10 },
+          { key: 'affiliate_commission', value: parseFloat(document.getElementById('affiliate_commission').value) || 0.8 }
+        ];
+        await api('/config/bulk', { method: 'POST', body: { configs } });
+        toast('Referral settings saved!', 'success');
+      } catch (err) {
+        toast('Failed to save referral settings', 'error');
+      }
+    }
+
+    // ==================== USERS ====================
+    async function searchUsers() {
+      const search = document.getElementById('userSearch').value;
+      const filter = document.getElementById('userFilter').value;
+      
+      try {
+        const data = await api(`/users?page=${currentUsersPage}&search=${encodeURIComponent(search)}&filter=${filter}`);
+        renderUsers(data);
+      } catch (err) {
+        toast('Failed to load users', 'error');
+      }
+    }
+
+    function renderUsers(data) {
+      const tbody = document.getElementById('usersList');
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td class="p-3 font-mono text-xs">${u.userId}</td>
+          <td class="p-3">${u.telegramId || '-'}</td>
+          <td class="p-3">${u.gender === 'M' ? '👨 Male' : u.gender === 'F' ? '👩 Female' : '-'}</td>
+          <td class="p-3">
+            ${u.banned ? '<span class="text-red-400">🚫 Banned</span>' : ''}
+            ${u.isVip ? '<span class="text-yellow-400">⭐ VIP</span>' : ''}
+            ${!u.banned && !u.isVip ? '<span class="text-gray-400">Normal</span>' : ''}
+          </td>
+          <td class="p-3">${u.botId || '-'}</td>
+          <td class="p-3 space-x-2">
+            ${u.banned 
+              ? `<button onclick="unbanUser('${u.userId}')" class="btn px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs">Unban</button>`
+              : `<button onclick="banUser('${u.userId}')" class="btn px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs">Ban</button>`
+            }
+            <button onclick="grantVip('${u.userId}')" class="btn px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-xs">+VIP</button>
+          </td>
+        </tr>
+      `).join('');
+      
+      // Pagination
+      const pagination = document.getElementById('usersPagination');
+      pagination.innerHTML = '';
+      for (let i = 1; i <= data.pages; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.className = `btn px-3 py-1 rounded ${i === data.page ? 'bg-indigo-600' : 'bg-gray-700 hover:bg-gray-600'}`;
+        btn.onclick = () => { currentUsersPage = i; searchUsers(); };
+        pagination.appendChild(btn);
+      }
+    }
+
+    async function banUser(userId) {
+      if (!confirm('Ban this user?')) return;
+      try {
+        await api(`/users/${userId}/ban`, { method: 'POST' });
+        toast('User banned', 'success');
+        searchUsers();
+      } catch (err) {
+        toast('Failed to ban user', 'error');
+      }
+    }
+
+    async function unbanUser(userId) {
+      try {
+        await api(`/users/${userId}/unban`, { method: 'POST' });
+        toast('User unbanned', 'success');
+        searchUsers();
+      } catch (err) {
+        toast('Failed to unban user', 'error');
+      }
+    }
+
+    async function grantVip(userId) {
+      const days = prompt('VIP days to grant:', '30');
+      if (!days) return;
+      try {
+        await api(`/users/${userId}/vip`, { method: 'POST', body: { days: parseInt(days) } });
+        toast('VIP granted!', 'success');
+        searchUsers();
+      } catch (err) {
+        toast('Failed to grant VIP', 'error');
+      }
+    }
+
+    // ==================== BOTS ====================
+    async function loadBots() {
+      try {
+        const data = await api('/bots');
+        renderBots(data.bots);
+      } catch (err) {
+        toast('Failed to load bots', 'error');
+      }
+    }
+
+    function renderBots(bots) {
+      const container = document.getElementById('botsList');
+      if (bots.length === 0) {
+        container.innerHTML = '<p class="text-gray-400">No bots configured. Add a bot token below to get started.</p>';
+        return;
+      }
+      
+      container.innerHTML = bots.map(b => `
+        <div class="flex items-center justify-between p-4 bg-gray-700 rounded-lg">
+          <div>
+            <div class="font-medium">${b.id} <span class="text-xs text-gray-500">#${b.index}</span></div>
+            <div class="text-gray-400 text-sm font-mono">${b.token}</div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="${b.disabled ? 'text-red-400' : 'text-green-400'}">${b.disabled ? '❌ Disabled' : '✅ Active'}</span>
+            <button onclick="toggleBot('${b.id}')" class="btn px-3 py-2 ${b.disabled ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'} rounded-lg text-sm">
+              ${b.disabled ? 'Enable' : 'Disable'}
+            </button>
+            <button onclick="removeBot(${b.index})" class="btn px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm">Remove</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleBot(botId) {
+      try {
+        const data = await api(`/bots/${botId}/toggle`, { method: 'POST' });
+        toast(`Bot ${data.disabled ? 'disabled' : 'enabled'}`, 'success');
+        loadBots();
+      } catch (err) {
+        toast('Failed to toggle bot', 'error');
+      }
+    }
+
+    async function addBot() {
+      const token = document.getElementById('newBotToken').value.trim();
+      if (!token) {
+        toast('Enter a bot token', 'error');
+        return;
+      }
+      
+      try {
+        const data = await api('/bots/add', { method: 'POST', body: { token } });
+        toast(data.message || 'Bot added!', 'success');
+        document.getElementById('newBotToken').value = '';
+        loadBots();
+      } catch (err) {
+        toast(err.message || 'Failed to add bot', 'error');
+      }
+    }
+
+    async function removeBot(index) {
+      if (!confirm('Remove this bot? You will need to restart the server.')) return;
+      
+      try {
+        const data = await api(`/bots/${index}/remove`, { method: 'POST' });
+        toast(data.message || 'Bot removed!', 'success');
+        loadBots();
+      } catch (err) {
+        toast(err.message || 'Failed to remove bot', 'error');
+      }
+    }
+
+    async function restartBots() {
+      if (!confirm('⚠️ Restart all bots?\n\nThis will briefly disconnect all active chats and reload bot configuration.')) return;
+      
+      try {
+        toast('🔄 Restarting bots...', 'success');
+        const data = await api('/bots/restart', { method: 'POST' });
+        
+        if (data.success) {
+          toast('✅ ' + (data.message || 'All bots restarted successfully!'), 'success');
+          // Reload bots list to show updated status
+          setTimeout(() => loadBots(), 1000);
+        } else {
+          toast('❌ ' + (data.error || 'Restart failed'), 'error');
+        }
+      } catch (err) {
+        toast(err.message || 'Failed to restart bots', 'error');
+      }
+    }
+
+    // ==================== VIP PLANS ====================
+    function renderVipPlans() {
+      const container = document.getElementById('vipPlansList');
+      if (!vipPlans.length) {
+        container.innerHTML = '<p class="text-gray-400">No VIP plans configured. Add your first plan below.</p>';
+        return;
+      }
+      
+      container.innerHTML = vipPlans.map((plan, i) => `
+        <div class="flex items-center justify-between p-4 bg-gray-700 rounded-lg">
+          <div class="flex items-center gap-4">
+            <div class="${plan.enabled !== false ? 'text-green-400' : 'text-gray-500'}">
+              ${plan.enabled !== false ? '✅' : '❌'}
+            </div>
+            <div>
+              <div class="font-medium">${plan.name || plan.label}</div>
+              <div class="text-gray-400 text-sm">${plan.days} days • ${plan.stars} ⭐ Stars</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="toggleVipPlan(${i})" class="btn px-3 py-1 ${plan.enabled !== false ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'} rounded text-sm">
+              ${plan.enabled !== false ? 'Disable' : 'Enable'}
+            </button>
+            <button onclick="removeVipPlan(${i})" class="btn px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm">Remove</button>
+          </div>
+        </div>
+      `).join('');
+      
+      // Update VIP stats
+      const planCount = document.getElementById('vip-stat-revenue');
+      if (planCount) planCount.textContent = vipPlans.length;
+      const popular = document.getElementById('vip-stat-popular');
+      if (popular && vipPlans.length > 0) popular.textContent = vipPlans[0].name || 'N/A';
+    }
+
+    async function toggleVipPlan(index) {
+      vipPlans[index].enabled = !vipPlans[index].enabled;
+      
+      try {
+        await api('/config', { method: 'POST', body: { key: 'vip_plans_config', value: JSON.stringify(vipPlans) } });
+        renderVipPlans();
+        toast(`Plan ${vipPlans[index].enabled ? 'enabled' : 'disabled'}`, 'success');
+      } catch (err) {
+        vipPlans[index].enabled = !vipPlans[index].enabled;
+        toast('Failed to update plan', 'error');
+      }
+    }
+
+    async function addVipPlan() {
+      const name = document.getElementById('newPlanName').value.trim();
+      const days = parseInt(document.getElementById('newPlanDays').value);
+      const stars = parseInt(document.getElementById('newPlanStars').value);
+      const enabled = document.getElementById('newPlanEnabled').checked;
+      
+      if (!name || !days || !stars) {
+        toast('Fill all required fields', 'error');
+        return;
+      }
+      
+      if (days < 1 || stars < 1) {
+        toast('Days and Stars must be at least 1', 'error');
+        return;
+      }
+      
+      vipPlans.push({ name, label: name, days, stars, enabled, id: `plan_${Date.now()}` });
+      
+      try {
+        await api('/config', { method: 'POST', body: { key: 'vip_plans_config', value: JSON.stringify(vipPlans) } });
+        renderVipPlans();
+        document.getElementById('newPlanName').value = '';
+        document.getElementById('newPlanDays').value = '';
+        document.getElementById('newPlanStars').value = '';
+        document.getElementById('newPlanEnabled').checked = true;
+        toast('VIP plan added!', 'success');
+      } catch (err) {
+        vipPlans.pop();
+        toast('Failed to add plan', 'error');
+      }
+    }
+
+    async function removeVipPlan(index) {
+      if (!confirm('Remove this plan?')) return;
+      const removed = vipPlans.splice(index, 1);
+      
+      try {
+        await api('/config', { method: 'POST', body: { key: 'vip_plans_config', value: JSON.stringify(vipPlans) } });
+        renderVipPlans();
+        toast('VIP plan removed', 'success');
+      } catch (err) {
+        vipPlans.splice(index, 0, ...removed);
+        toast('Failed to remove plan', 'error');
+      }
+    }
+
+    // ==================== BROADCAST ====================
+    async function sendBroadcast() {
+      const message = document.getElementById('broadcastMessage').value.trim();
+      const audience = document.getElementById('broadcastAudience').value;
+      
+      if (!message) {
+        toast('Enter a message', 'error');
+        return;
+      }
+      
+      if (!confirm('Send broadcast to ' + audience + ' users?')) return;
+      
+      try {
+        await api('/broadcast', { method: 'POST', body: { message, audience } });
+        toast('Broadcast queued!', 'success');
+        document.getElementById('broadcastMessage').value = '';
+      } catch (err) {
+        toast('Failed to send broadcast', 'error');
+      }
+    }
+
+    // ==================== MESSAGES MANAGEMENT ====================
+    const messageLabels = {
+      'msg_welcome': { label: '👋 Welcome Message', desc: 'Shown when user first starts the bot' },
+      'msg_searching': { label: '🔍 Searching Message', desc: 'Shown when looking for partner' },
+      'msg_connected': { label: '🎉 Connected Message', desc: 'Shown when partner found' },
+      'msg_partner_left': { label: '👋 Partner Left', desc: 'Shown when partner disconnects' },
+      'msg_chat_ended': { label: '✅ Chat Ended', desc: 'Shown when user ends chat' },
+      'msg_not_paired': { label: '⚠️ Not Paired', desc: 'Shown when user tries to chat without partner' },
+      'msg_banned_user': { label: '🚫 Banned Message', desc: 'Shown to banned users' },
+      'msg_maintenance': { label: '🔧 Maintenance', desc: 'Shown during maintenance mode' },
+      'msg_rate_limited': { label: '⏰ Rate Limited', desc: 'Shown when user sends too fast' }
+    };
+
+    async function loadMessages() {
+      try {
+        botMessages = await api('/messages');
+        renderMessages();
+      } catch (err) {
+        toast('Failed to load messages', 'error');
+      }
+    }
+
+    function renderMessages() {
+      const container = document.getElementById('messagesContainer');
+      container.innerHTML = Object.entries(messageLabels).map(([key, info]) => `
+        <div class="bg-gray-700 rounded-lg p-4">
+          <label class="block font-medium mb-1">${info.label}</label>
+          <p class="text-gray-400 text-xs mb-2">${info.desc}</p>
+          <textarea 
+            id="input-${key}" 
+            class="w-full p-3 bg-gray-600 rounded-lg text-sm" 
+            rows="3"
+            placeholder="Enter message..."
+          >${botMessages[key] || ''}</textarea>
+        </div>
+      `).join('');
+    }
+
+    async function saveAllMessages() {
+      const updates = [];
+      for (const key of Object.keys(messageLabels)) {
+        const input = document.getElementById(`input-${key}`);
+        if (input) {
+          updates.push({ key, value: input.value });
+        }
+      }
+      
+      try {
+        for (const { key, value } of updates) {
+          await api('/messages', { method: 'POST', body: { key, value } });
+        }
+        toast('All messages saved!', 'success');
+      } catch (err) {
+        toast('Failed to save messages', 'error');
+      }
+    }
+
+    // ==================== ANALYTICS ====================
+    let analyticsCharts = {};
+
+    function setDateRange(days) {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - days);
+      
+      document.getElementById('analyticsStartDate').value = start.toISOString().split('T')[0];
+      document.getElementById('analyticsEndDate').value = end.toISOString().split('T')[0];
+    }
+
+    async function loadAnalytics() {
+      const startDate = document.getElementById('analyticsStartDate').value;
+      const endDate = document.getElementById('analyticsEndDate').value;
+      
+      if (!startDate || !endDate) {
+        toast('Please select date range', 'error');
+        return;
+      }
+      
+      try {
+        const data = await api(`/analytics?startDate=${startDate}&endDate=${endDate}`);
+        renderAnalyticsCharts(data);
+        toast('Analytics loaded', 'success');
+      } catch (err) {
+        toast('Failed to load analytics', 'error');
+      }
+    }
+
+    function renderAnalyticsCharts(data) {
+      const labels = data.map(d => d.date);
+      
+      // Destroy existing charts
+      Object.values(analyticsCharts).forEach(chart => chart.destroy());
+      
+      // User Growth Chart
+      analyticsCharts.userGrowth = new Chart(document.getElementById('userGrowthChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'New Users',
+            data: data.map(d => d.newUsers || 0),
+            borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+            fill: true,
+            tension: 0.3
+          }, {
+            label: 'Active Users',
+            data: data.map(d => d.activeUsers || 0),
+            borderColor: '#34d399',
+            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: '#9ca3af' } } },
+          scales: {
+            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+            y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+          }
+        }
+      });
+      
+      // Chat Activity Chart
+      analyticsCharts.chatActivity = new Chart(document.getElementById('chatActivityChart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Total Chats',
+            data: data.map(d => d.totalChats || 0),
+            backgroundColor: '#8b5cf6'
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: '#9ca3af' } } },
+          scales: {
+            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+            y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+          }
+        }
+      });
+      
+      // VIP Revenue Chart
+      analyticsCharts.vipRevenue = new Chart(document.getElementById('vipRevenueChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'VIP Revenue (Stars)',
+            data: data.map(d => d.vipRevenue || 0),
+            borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251, 191, 36, 0.1)',
+            fill: true,
+            tension: 0.3
+          }, {
+            label: 'Lock Revenue (Stars)',
+            data: data.map(d => d.lockRevenue || 0),
+            borderColor: '#f472b6',
+            backgroundColor: 'rgba(244, 114, 182, 0.1)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: '#9ca3af' } } },
+          scales: {
+            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+            y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+          }
+        }
+      });
+      
+      // Ratings Chart
+      const totalPositive = data.reduce((s, d) => s + (d.positiveRatings || 0), 0);
+      const totalNegative = data.reduce((s, d) => s + (d.negativeRatings || 0), 0);
+      const totalReports = data.reduce((s, d) => s + (d.reports || 0), 0);
+      
+      analyticsCharts.ratings = new Chart(document.getElementById('ratingsChart'), {
+        type: 'doughnut',
+        data: {
+          labels: ['👍 Positive', '👎 Negative', '⚠️ Reports'],
+          datasets: [{
+            data: [totalPositive, totalNegative, totalReports],
+            backgroundColor: ['#34d399', '#f87171', '#fbbf24']
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: '#9ca3af' } } }
+        }
+      });
+    }
+
+    // ==================== AUDIT LOGS ====================
+    let auditLogsPage = 1;
+    const auditLogsPerPage = 20;
+
+    async function loadAuditLogs(direction) {
+      if (direction === 'next') auditLogsPage++;
+      else if (direction === 'prev' && auditLogsPage > 1) auditLogsPage--;
+      else if (!direction) auditLogsPage = 1;
+      
+      const category = document.getElementById('auditCategory').value;
+      
+      try {
+        const data = await api(`/audit-logs?page=${auditLogsPage}&limit=${auditLogsPerPage}${category ? '&category=' + category : ''}`);
+        renderAuditLogs(data);
+      } catch (err) {
+        toast('Failed to load audit logs', 'error');
+      }
+    }
+
+    function renderAuditLogs(data) {
+      const container = document.getElementById('auditLogsList');
+      const logs = data.logs || [];
+      
+      if (logs.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">No audit logs found</p>';
+        return;
+      }
+      
+      const categoryIcons = {
+        auth: '🔐', user: '👤', config: '⚙️', broadcast: '📢',
+        bot: '🤖', export: '📤', maintenance: '🔧', report: '⚠️'
+      };
+      
+      container.innerHTML = logs.map(log => `
+        <div class="bg-gray-700 rounded-lg p-3 flex items-start gap-3">
+          <span class="text-2xl">${categoryIcons[log.category] || '📝'}</span>
+          <div class="flex-1">
+            <div class="flex justify-between">
+              <span class="font-medium">${log.action}</span>
+              <span class="text-xs text-gray-400">${new Date(log.createdAt).toLocaleString()}</span>
+            </div>
+            <p class="text-sm text-gray-400">Admin: ${log.adminId} ${log.targetType ? `→ ${log.targetType}: ${log.targetId}` : ''}</p>
+            ${log.details ? `<p class="text-xs text-gray-500 mt-1">${log.details}</p>` : ''}
+          </div>
+        </div>
+      `).join('');
+      
+      document.getElementById('auditPageInfo').textContent = `Page ${auditLogsPage}`;
+      document.getElementById('auditPrevBtn').disabled = auditLogsPage <= 1;
+      document.getElementById('auditNextBtn').disabled = logs.length < auditLogsPerPage;
+    }
+
+    // ==================== EXPORT ====================
+    async function exportData() {
+      const table = document.getElementById('exportTable').value;
+      const format = document.querySelector('input[name="exportFormat"]:checked').value;
+      const limit = document.getElementById('exportLimit').value;
+      
+      try {
+        toast('Preparing export...', 'info');
+        const response = await fetch(`/api/admin/export?table=${table}&format=${format}${limit ? '&limit=' + limit : ''}`, {
+          headers: { 'X-Admin-Token': authToken }
+        });
+        
+        if (!response.ok) throw new Error('Export failed');
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${table}_export.${format === 'excel' ? 'xlsx' : format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        toast('Export downloaded!', 'success');
+      } catch (err) {
+        toast('Failed to export data', 'error');
+      }
+    }
+
+    // ==================== MAINTENANCE ====================
+    let maintenanceMode = false;
+
+    async function loadMaintenanceStatus() {
+      try {
+        const data = await api('/maintenance/status');
+        maintenanceMode = data.enabled;
+        updateMaintenanceToggle();
+        renderMaintenanceList(data.scheduled || []);
+      } catch (err) {
+        console.error('Failed to load maintenance status');
+      }
+    }
+
+    function updateMaintenanceToggle() {
+      const btn = document.getElementById('maintenanceToggle');
+      if (maintenanceMode) {
+        btn.textContent = '🔴 ENABLED - Click to Disable';
+        btn.className = 'btn px-6 py-2 rounded-lg font-medium bg-red-600 hover:bg-red-700';
+      } else {
+        btn.textContent = '🟢 DISABLED - Click to Enable';
+        btn.className = 'btn px-6 py-2 rounded-lg font-medium bg-green-600 hover:bg-green-700';
+      }
+    }
+
+    async function toggleMaintenance() {
+      const action = maintenanceMode ? 'disable' : 'enable';
+      if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} maintenance mode?`)) return;
+      
+      try {
+        await api('/maintenance/toggle', { method: 'POST', body: { enabled: !maintenanceMode } });
+        maintenanceMode = !maintenanceMode;
+        updateMaintenanceToggle();
+        toast(`Maintenance mode ${maintenanceMode ? 'enabled' : 'disabled'}`, 'success');
+      } catch (err) {
+        toast('Failed to toggle maintenance', 'error');
+      }
+    }
+
+    async function scheduleMaintenance() {
+      const title = document.getElementById('maintenanceTitle').value.trim();
+      const startTime = document.getElementById('maintenanceStart').value;
+      const endTime = document.getElementById('maintenanceEnd').value;
+      const notifyUsers = document.getElementById('maintenanceNotify').checked;
+      
+      if (!title || !startTime || !endTime) {
+        toast('Please fill all fields', 'error');
+        return;
+      }
+      
+      try {
+        await api('/maintenance/schedule', { method: 'POST', body: { title, startTime, endTime, notifyUsers } });
+        toast('Maintenance scheduled!', 'success');
+        loadMaintenanceStatus();
+        document.getElementById('maintenanceTitle').value = '';
+        document.getElementById('maintenanceStart').value = '';
+        document.getElementById('maintenanceEnd').value = '';
+      } catch (err) {
+        toast('Failed to schedule maintenance', 'error');
+      }
+    }
+
+    function renderMaintenanceList(scheduled) {
+      const container = document.getElementById('maintenanceList');
+      
+      if (!scheduled || scheduled.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">No scheduled maintenance</p>';
+        return;
+      }
+      
+      container.innerHTML = scheduled.map(m => `
+        <div class="bg-gray-700 rounded-lg p-3 flex justify-between items-center">
+          <div>
+            <span class="font-medium">${m.title}</span>
+            <p class="text-sm text-gray-400">${new Date(m.startTime).toLocaleString()} → ${new Date(m.endTime).toLocaleString()}</p>
+          </div>
+          <div class="flex gap-2">
+            <span class="px-2 py-1 rounded text-xs ${m.status === 'scheduled' ? 'bg-yellow-600' : m.status === 'active' ? 'bg-red-600' : 'bg-green-600'}">${m.status}</span>
+            <button onclick="cancelMaintenance(${m.id})" class="btn px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs">Cancel</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function cancelMaintenance(id) {
+      if (!confirm('Cancel this scheduled maintenance?')) return;
+      
+      try {
+        await api(`/maintenance/${id}`, { method: 'DELETE' });
+        toast('Maintenance cancelled', 'success');
+        loadMaintenanceStatus();
+      } catch (err) {
+        toast('Failed to cancel maintenance', 'error');
+      }
+    }
+
+    // ==================== TABS ====================
+    function showTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.tab').forEach(btn => {
+        btn.classList.remove('tab-active');
+        btn.classList.add('text-gray-400');
+        if (btn.dataset.tab === tabName) {
+          btn.classList.add('tab-active');
+          btn.classList.remove('text-gray-400');
+        }
+      });
+      
+      // Update content
+      document.querySelectorAll('.tab-content').forEach(section => {
+        section.classList.add('hidden');
+      });
+      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+      
+      // Load tab-specific data
+      if (tabName === 'users') searchUsers();
+      if (tabName === 'bots') loadBots();
+      if (tabName === 'messages') loadMessages();
+      if (tabName === 'vip') loadStats();
+      if (tabName === 'analytics') {
+        // Set default date range (last 30 days)
+        if (!document.getElementById('analyticsStartDate').value) {
+          setDateRange(30);
+        }
+      }
+      if (tabName === 'audit') loadAuditLogs();
+      if (tabName === 'maintenance') loadMaintenanceStatus();
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.onclick = () => showTab(tab.dataset.tab);
+    });
+
+    // ==================== TOAST ====================
+    function toast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-blue-600' };
+      
+      const div = document.createElement('div');
+      div.className = `toast ${colors[type]} px-4 py-3 rounded-lg shadow-lg`;
+      div.textContent = message;
+      container.appendChild(div);
+      
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    // ==================== INIT ====================
+    if (authToken) {
+      showDashboard();
+    }
+  </script>
+</body>
+</html>

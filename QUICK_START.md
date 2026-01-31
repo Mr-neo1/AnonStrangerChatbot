@@ -39,6 +39,13 @@ SQLITE_DB_PATH=./chatbot.db
 REDIS_URL=memory://
 ```
 
+**Admin Panel (optional):**
+```env
+ADMIN_PANEL_PORT=4000
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
+```
+
 ### Step 3: Initialize Database
 
 ```bash
@@ -54,10 +61,16 @@ npm run dev
 
 **Option 2: Start both bot + admin panel**
 ```bash
-node start-all.js
+npm run all
+# Admin panel: http://localhost:4000/admin
 ```
 
-**Option 3: Production (PM2 cluster)**
+**Option 3: Admin Panel only**
+```bash
+npm run admin
+```
+
+**Option 4: Production (PM2 cluster)**
 ```bash
 # Install PM2 if not installed
 npm install -g pm2

@@ -13,7 +13,11 @@ const sqlite3 = require('sqlite3').verbose();
       process.exit(2);
     }
 
-    const sqlFile = path.join(__dirname, 'init_schema.sql');
+    let sqlFile = path.join(__dirname, 'init_schema.sql');
+    if (!fs.existsSync(sqlFile)) {
+      // Try root directory
+      sqlFile = path.join(__dirname, '..', 'init_schema.sql');
+    }
     if (!fs.existsSync(sqlFile)) {
       console.error('init_schema.sql not found at', sqlFile);
       process.exit(2);

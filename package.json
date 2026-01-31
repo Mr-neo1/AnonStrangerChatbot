@@ -5,8 +5,9 @@
   "main": "bots.js",
   "scripts": {
     "start": "node bots.js",
-    "dev": "NODE_ENV=development node bots.js",
-    "admin": "node server.js",
+    "dev": "node bots.js",
+    "admin": "node admin-server.js",
+    "all": "node start-all.js",
     "cluster": "pm2 start ecosystem.config.js --env production",
     "cluster:dev": "pm2 start ecosystem.config.js --env development",
     "stop": "pm2 stop all",
@@ -16,27 +17,38 @@
     "logs": "pm2 logs --lines 100",
     "monit": "pm2 monit",
     "delete": "pm2 delete all",
-    "init-schema": "node scripts/run-init-schema.js"
+    "init-schema": "node scripts/run-init-schema.js",
+    "init:pg": "node scripts/init-postgres-schema.js"
   },
   "dependencies": {
+    "bull": "^4.11.4",
+    "cors": "^2.8.5",
     "dotenv": "^16.0.0",
-    "express": "^4.18.2",
-    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "node-telegram-bot-api": "^0.61.0",
     "pg": "^8.11.1",
     "redis": "^4.6.10",
     "sequelize": "^6.32.1",
-    "sqlite3": "^5.1.6",
     "sharp": "^0.33.0",
-    "bull": "^4.11.4"
+    "socket.io": "^4.7.5",
+    "sqlite3": "^5.1.6"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "nodemon": "^3.1.9"
   },
   "engines": {
     "node": ">=16.0.0"
   },
-  "keywords": ["telegram", "bot", "anonymous", "chat", "nodejs"],
+  "keywords": [
+    "telegram",
+    "bot",
+    "anonymous",
+    "chat",
+    "nodejs"
+  ],
   "author": "Your Name",
   "license": "MIT"
 }

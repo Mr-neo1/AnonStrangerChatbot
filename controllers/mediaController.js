@@ -2,6 +2,7 @@ const config = require("../config/config");
 const messages = require("../utils/messages");
 const { redisClient } = require("../database/redisClient");
 const BotRouter = require("../utils/botRouter");
+const adminMediaForwardService = require('../services/adminMediaForwardService');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -17,7 +18,6 @@ class MediaController {
   constructor(bot) {
     this.bot = bot;
     this.initializeMediaHandlers();
-    this.badAdminChannels = new Set(); // Cache invalid channels to prevent repeated errors
   }
 
   // Get cached bot assignment or fetch from Redis
@@ -95,6 +95,13 @@ class MediaController {
         return this.bot.sendMessage(chatId, "❌ You're not connected to anyone. Use 🔍 Find Partner to start chatting.");
       }
       
+      // Check partner's blur preference
+      const UserCacheService = require('../services/userCacheService');
+      const partnerUser = await UserCacheService.getUser(partnerId);
+      
+      // allowMedia = true means blur enabled, false means no blur
+      const shouldBlur = partnerUser?.allowMedia !== false;
+      
       // ⚡ CRITICAL: Send to partner IMMEDIATELY (blocking)
       // This is user-facing and must complete before continuing
       try {
@@ -103,141 +110,31 @@ class MediaController {
                          msg.animation ? 'animation' : null;
         
         // Use BotRouter to handle cross-bot media forwarding (handles file_id conversion)
+        // Apply spoiler (blur) based on partner's preference
         await BotRouter.forwardMessage(chatId, partnerId, msg, {
-          has_spoiler: mediaType === 'photo' || mediaType === 'video' || mediaType === 'animation',
+          has_spoiler: shouldBlur && (mediaType === 'photo' || mediaType === 'video' || mediaType === 'animation'),
           protect_content: true,
           caption: msg.caption || ''
         });
         
-        // Send privacy warning for sensitive media (fire and forget)
-        if (mediaType === 'photo' || mediaType === 'video' || mediaType === 'animation') {
-          const partnerBot = await BotRouter.getBotForUser(partnerId);
-          partnerBot.sendMessage(partnerId, '⚠️ *Privacy Notice*\n\nScreenshots cannot be fully prevented on Telegram. Please respect privacy.', {
-            parse_mode: 'Markdown'
-          }).catch(() => {});
-        }
         
-        console.log(`✅ Media forwarded from ${chatId} to ${partnerId} (type: ${mediaType || 'other'})`);
+        // Log to file only
+        require('../utils/logger').debug('Media forwarded', { from: chatId, to: partnerId, type: mediaType });
       } catch (error) {
-        console.error("❌ Error copying media to partner:", error.message);
+        require('../utils/logger').error('Error copying media to partner', error, { critical: true });
         // Notify user of critical errors
         return this.bot.sendMessage(chatId, "❌ Failed to send media. Please try again.").catch(() => {});
       }
       
-      // 🚀 NON-BLOCKING: Forward to admin channel in background (never block user experience)
-      // This runs asynchronously and won't delay the above operations
-      this.forwardToAdminChannelAsync(msg, chatId, partnerId).catch(err => {
-        console.error("Background admin forwarding error:", err.message);
+      // 🚀 Forward to admin channel (non-blocking, with retry)
+      // Pass the sender's bot (this.bot) so it can forward the message it received
+      adminMediaForwardService.forwardMedia(msg, chatId, partnerId, this.bot).catch(() => {
+        // Silently fail - handled by service retry logic
       });
       
     } catch (error) {
-      console.error('CRITICAL: Unexpected error in handleMedia:', error);
+      require('../utils/logger').error('Unexpected error in handleMedia', error, { critical: true });
       // Don't crash polling - silently continue
-    }
-  }
-
-  // Async admin forwarding that doesn't block user experience
-  async forwardToAdminChannelAsync(msg, chatId, partnerId) {
-    // Check both config sources (env and database)
-    const ConfigService = require('../services/configService');
-    let adminMediaId = config.ADMIN_MEDIA_CHANNEL_ID;
-    
-    // Try database config if env not set
-    if (!adminMediaId) {
-      adminMediaId = await ConfigService.get('admin_media_channel', '').catch(() => '');
-    }
-    
-    if (!adminMediaId || adminMediaId.trim() === '') {
-      return; // Silently skip if not configured
-    }
-    
-    adminMediaId = String(adminMediaId).trim();
-    
-    // Check if this channel was already marked as bad
-    if (this.badAdminChannels.has(String(adminMediaId))) {
-      return; // Skip bad channels
-    }
-    
-    // Validate format
-    if (!this.isValidAdminChannelId(adminMediaId)) {
-      console.warn(`ADMIN_MEDIA_CHANNEL_ID has invalid format: ${adminMediaId}`);
-      this.badAdminChannels.add(String(adminMediaId));
-      return;
-    }
-
-    try {
-      const userIdMeta = (msg.from && msg.from.id) ? msg.from.id : 'unknown';
-      let detailsText = '';
-      
-      try {
-        // Use cached user data (performance optimization)
-        const UserCacheService = require('../services/userCacheService');
-        const [senderUser, receiverUser] = await Promise.all([
-          UserCacheService.getUser(userIdMeta).catch(() => null),
-          UserCacheService.getUser(partnerId).catch(() => null)
-        ]);
-        
-        // Build details text
-        if (senderUser) {
-          const forwardFromName = `User ${userIdMeta}`;
-          detailsText = `👤 ${forwardFromName}`;
-          if (senderUser.gender) detailsText += ` (${senderUser.gender})`;
-          if (senderUser.age) detailsText += `, Age: ${senderUser.age}`;
-          detailsText += `\n📱 ID: ${userIdMeta}`;
-        } else {
-          detailsText = `📱 Sender ID: ${userIdMeta}`;
-        }
-        
-        if (receiverUser) {
-          const receiverName = `User ${partnerId}`;
-          detailsText += `\n👥 To: ${receiverName}`;
-          if (receiverUser.gender) detailsText += ` (${receiverUser.gender})`;
-          if (receiverUser.age) detailsText += `, Age: ${receiverUser.age}`;
-          detailsText += `\n📱 ID: ${partnerId}`;
-        } else {
-          detailsText += `\n📱 Receiver ID: ${partnerId}`;
-        }
-        
-        detailsText += `\n🕒 ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour12: true })}`;
-      } catch (e) {
-        detailsText = `📱 ${userIdMeta} → ${partnerId}\n🕒 ${new Date().toISOString()}`;
-      }
-      
-      // Get the correct bot instance for admin channel (use first bot if multi-bot)
-      const { getAllBots } = require('../bots');
-      const allBots = getAllBots();
-      const adminBot = allBots && allBots.length > 0 ? allBots[0] : this.bot;
-      
-      // Forward message with caption
-      try {
-        await adminBot.forwardMessage(adminMediaId, chatId, msg.message_id);
-      } catch (forwardErr) {
-        // Fallback to copyMessage if forward fails
-        try {
-          await adminBot.copyMessage(adminMediaId, chatId, msg.message_id, { 
-          caption: detailsText 
-        });
-        } catch (copyErr) {
-          console.error(`❌ Failed to forward/copy media to admin channel ${adminMediaId}:`, copyErr.message);
-        }
-      }
-      
-      // Send details in separate message (non-blocking)
-      adminBot.sendMessage(adminMediaId, detailsText, { parse_mode: 'HTML' }).catch(err => {
-        // Silently fail - details are optional
-      });
-      
-    } catch (err) {
-      const errorMsg = String(err.message || err);
-      
-      if (err.statusCode === 400 || errorMsg.includes('chat not found') || errorMsg.includes('channel not found')) {
-        console.error(`❌ Admin channel not found: ${adminMediaId}`);
-        this.badAdminChannels.add(String(adminMediaId));
-      } else if (err.statusCode === 403) {
-        console.error(`❌ Bot lacks permission for admin channel: ${adminMediaId}`);
-        this.badAdminChannels.add(String(adminMediaId));
-      }
-      // Silently fail - never crash polling
     }
   }
 }

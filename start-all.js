@@ -5,7 +5,29 @@
  * Starts both Telegram bot and admin dashboard Express server
  */
 
-require('dotenv').config({ path: '.env.local' });
+// Suppress known deprecation warnings from dependencies (not our code)
+// These come from node-telegram-bot-api internals and cannot be fixed without patching the library
+process.env.NTBA_FIX_319 = '1'; // Fixes the filename deprecation
+process.env.NTBA_FIX_350 = '1'; // Fixes the content-type deprecation
+
+// Suppress util.isArray deprecation (comes from node-telegram-bot-api using old Node.js APIs)
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = (warning, ...args) => {
+  // Suppress specific deprecation warnings from dependencies
+  if (typeof warning === 'string' && warning.includes('util.isArray')) {
+    return; // Suppress this specific warning
+  }
+  return originalEmitWarning.call(process, warning, ...args);
+};
+
+// Load .env.local first if exists, then fallback to .env
+const fs = require('fs');
+if (fs.existsSync('.env.local')) {
+  require('dotenv').config({ path: '.env.local' });
+} else {
+  require('dotenv').config(); // loads .env by default
+}
+
 const logger = require('./utils/logger');
 
 async function startAll() {
@@ -13,9 +35,10 @@ async function startAll() {
     logger.info('Starting Telegram bot and admin dashboard...');
     
     // 1. Start admin dashboard server first
-    logger.info('Starting admin dashboard on port ' + (process.env.ADMIN_PORT || 3000));
-    const { startServer } = require('./server');
-    await startServer();
+    const adminPort = process.env.ADMIN_PANEL_PORT || 4000;
+    logger.info('Starting admin dashboard on port ' + adminPort);
+    const { startAdminServer } = require('./admin-server');
+    await startAdminServer();
     
     // 2. Start Telegram bot (multi-bot support)
     logger.info('Starting Telegram bot...');
@@ -24,13 +47,24 @@ async function startAll() {
     startHealthCheck();
     
     logger.info('✅ All services started successfully');
-    logger.info('Admin dashboard: http://localhost:' + (process.env.ADMIN_PORT || 3000) + '/admin/login');
+    logger.info('Admin dashboard: http://localhost:' + adminPort + '/admin');
     
   } catch (error) {
     logger.error('Failed to start services:', error);
     process.exit(1);
   }
 }
+
+// Handle unhandled rejections and uncaught exceptions
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - let the app try to recover
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit immediately - log the error first
+});
 
 // Handle graceful shutdown
 process.on('SIGINT', () => {

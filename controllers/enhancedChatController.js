@@ -1,11 +1,26 @@
 const User = require("../models/userModel");
 const { checkUserJoined } = require("../middlewares/authMiddleware");
 const enhancedMessages = require("../utils/enhancedMessages");
+const MessagesService = require("../services/messagesService");
 const keyboards = require("../utils/keyboards");
 const { redisClient } = require("../database/redisClient");
 const { cache, rateLimiter } = require("../utils/performance");
 const SessionManager = require("../utils/sessionManager");
 const BotRouter = require("../utils/botRouter");
+const stateManager = require("../utils/stateManager");
+const ChatRatingService = require("../services/chatRatingService");
+
+// Helper function to check maintenance mode
+async function isMaintenanceMode() {
+  try {
+    const { AppConfig } = require('../models');
+    const maintenanceConfig = await AppConfig.findOne({ where: { key: 'maintenance_mode' } });
+    return maintenanceConfig && maintenanceConfig.value === 'true';
+  } catch (error) {
+    console.error('Error checking maintenance mode:', error);
+    return false;
+  }
+}
 
 // Helper function factory to create channel verification wrapper with bot instance
 function createChannelVerificationWrapper(botInstance, controllerInstance) {
@@ -18,6 +33,15 @@ function createChannelVerificationWrapper(botInstance, controllerInstance) {
       if (!botInstance) {
         console.error('Bot instance not available in handler');
         return; // Skip handler if bot not available
+      }
+      
+      // Check maintenance mode first
+      if (await isMaintenanceMode()) {
+        const maintenanceMsg = "🔧 *Maintenance Mode*\n\n" +
+          "The bot is currently under maintenance.\n" +
+          "Please try again later. We apologize for the inconvenience!";
+        await botInstance.sendMessage(chatId, maintenanceMsg, { parse_mode: 'Markdown' });
+        return;
       }
     
     // Always check channel membership (mandatory)
@@ -55,6 +79,47 @@ const SEARCH_MESSAGES = [
 
 global.userConversations = global.userConversations || {};
 
+// OPTIMIZATION: Auto-cleanup for global objects to prevent memory leaks
+// Clean abandoned search intervals (5 min timeout)
+setInterval(() => {
+  const now = Date.now();
+  const timeout = 5 * 60 * 1000; // 5 minutes
+  
+  // Cleanup orphaned search intervals
+  for (const [userId, intervalId] of Object.entries(global.searchIntervals)) {
+    const startTime = global.searchMessages[`${userId}_startTime`];
+    if (!startTime || now - startTime > timeout) {
+      clearInterval(intervalId);
+      delete global.searchIntervals[userId];
+      delete global.searchMessages[userId];
+      delete global.searchMessages[`${userId}_msgId`];
+      delete global.searchMessages[`${userId}_startTime`];
+    }
+  }
+  
+  // Cleanup stale userConversations (30 min timeout)
+  const convTimeout = 30 * 60 * 1000; // 30 minutes
+  for (const [userId, state] of Object.entries(global.userConversations)) {
+    const lastUpdate = global.userConversations[`${userId}_ts`];
+    if (lastUpdate && now - lastUpdate > convTimeout) {
+      delete global.userConversations[userId];
+      delete global.userConversations[`${userId}_ts`];
+    }
+  }
+}, 60000); // Run every minute
+
+// Helper function to set conversation state with timestamp tracking (for auto-cleanup)
+function setConversationState(userId, state) {
+  global.userConversations[userId] = state;
+  global.userConversations[`${userId}_ts`] = Date.now();
+}
+
+// Helper to clear conversation state
+function clearConversationState(userId) {
+  delete global.userConversations[userId];
+  delete global.userConversations[`${userId}_ts`];
+}
+
 class EnhancedChatController {
   constructor(bot) {
     this.bot = bot;
@@ -69,7 +134,6 @@ class EnhancedChatController {
     this.bot.onText(/🔍 Find Partner/, this.withChannelVerification(async (msg) => {
       await this.handleSearch(msg);
     }));
-
     this.bot.onText(/❌ Stop Chat/, this.withChannelVerification(async (msg) => {
       try {
         await this.stopChatInternal(msg.chat.id);
@@ -111,6 +175,10 @@ class EnhancedChatController {
 
     this.bot.onText(/⭐ Partner Gender Preference/, this.withChannelVerification(async (msg) => {
       await this.updateVipGenderPreference(msg);
+    }));
+
+    this.bot.onText(/🎯 Age Preference/, this.withChannelVerification(async (msg) => {
+      await this.updateVipAgePreference(msg);
     }));
 
     this.bot.onText(/📊 View Stats/, this.withChannelVerification(async (msg) => {
@@ -216,6 +284,117 @@ class EnhancedChatController {
           return;
         }
 
+        // ===== RATING CALLBACKS =====
+        // Positive rating (thumbs up)
+        if (cb.data === 'RATE_POSITIVE') {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          const pendingRating = stateManager.getPendingRating(chatId);
+          
+          if (pendingRating) {
+            await ChatRatingService.submitRating({
+              raterId: chatId,
+              ratedUserId: pendingRating.partnerId,
+              ratingType: 'positive',
+              reportReason: 'none'
+            });
+            stateManager.clearPendingRating(chatId);
+          }
+          
+          await this.bot.answerCallbackQuery(cb.id, { text: '👍 Thanks for your feedback!' }).catch(() => {});
+          await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
+          return;
+        }
+
+        // Negative rating (thumbs down) - no report
+        if (cb.data === 'RATE_NEGATIVE') {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          const pendingRating = stateManager.getPendingRating(chatId);
+          
+          if (pendingRating) {
+            await ChatRatingService.submitRating({
+              raterId: chatId,
+              ratedUserId: pendingRating.partnerId,
+              ratingType: 'negative',
+              reportReason: 'none'
+            });
+            stateManager.clearPendingRating(chatId);
+          }
+          
+          await this.bot.answerCallbackQuery(cb.id, { text: '👎 Thanks for your feedback!' }).catch(() => {});
+          await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
+          return;
+        }
+
+        // Skip rating
+        if (cb.data === 'RATE_SKIP') {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          const pendingRating = stateManager.getPendingRating(chatId);
+          
+          if (pendingRating) {
+            await ChatRatingService.submitRating({
+              raterId: chatId,
+              ratedUserId: pendingRating.partnerId,
+              ratingType: 'skipped',
+              reportReason: 'none'
+            });
+            stateManager.clearPendingRating(chatId);
+          }
+          
+          await this.bot.answerCallbackQuery(cb.id).catch(() => {});
+          await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
+          return;
+        }
+
+        // Open report menu
+        if (cb.data === 'RATE_REPORT') {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          await this.bot.answerCallbackQuery(cb.id).catch(() => {});
+          
+          // Show report reasons menu
+          await this.bot.editMessageText('⚠️ *Report Partner*\n\nSelect the reason for reporting:', {
+            chat_id: chatId,
+            message_id: cb.message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: ChatRatingService.getReportKeyboard()
+          }).catch(() => {});
+          return;
+        }
+
+        // Report with specific reason
+        if (cb.data.startsWith('REPORT_')) {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          const reason = cb.data.replace('REPORT_', '').toLowerCase();
+          const pendingRating = stateManager.getPendingRating(chatId);
+          
+          if (pendingRating) {
+            await ChatRatingService.submitRating({
+              raterId: chatId,
+              ratedUserId: pendingRating.partnerId,
+              ratingType: 'negative',
+              reportReason: reason
+            });
+            stateManager.clearPendingRating(chatId);
+          }
+          
+          await this.bot.answerCallbackQuery(cb.id, { text: '⚠️ Report submitted. Thank you!' }).catch(() => {});
+          await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
+          return;
+        }
+
+        // Back to rating menu from report menu
+        if (cb.data === 'RATE_BACK') {
+          const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
+          await this.bot.answerCallbackQuery(cb.id).catch(() => {});
+          
+          await this.bot.editMessageText('How was your chat?', {
+            chat_id: chatId,
+            message_id: cb.message.message_id,
+            reply_markup: ChatRatingService.getRatingKeyboard()
+          }).catch(() => {});
+          return;
+        }
+        // ===== END RATING CALLBACKS =====
+
         if (cb.data === 'MENU_BACK') {
           const chatId = cb.from.id || (cb.message && cb.message.chat && cb.message.chat.id);
           await this.bot.answerCallbackQuery(cb.id).catch(() => {});
@@ -266,10 +445,21 @@ class EnhancedChatController {
       }
     });
 
+    // Rules button handler
     this.bot.onText(/📋 Rules/, this.withChannelVerification(async (msg) => {
-      this.bot.sendMessage(msg.chat.id, enhancedMessages.rules, {
+      // Get rules from admin panel (dynamic) or fallback to hardcoded
+      const rulesMsg = await MessagesService.get('msg_rules') || enhancedMessages.rules;
+      this.bot.sendMessage(msg.chat.id, rulesMsg, {
         parse_mode: "Markdown",
         ...keyboards.getMainKeyboard()
+      });
+    }));
+
+    // /rules command handler
+    this.bot.onText(/\/rules/, this.withChannelVerification(async (msg) => {
+      const rulesMsg = await MessagesService.get('msg_rules') || enhancedMessages.rules;
+      this.bot.sendMessage(msg.chat.id, rulesMsg, {
+        parse_mode: "Markdown"
       });
     }));
 
@@ -285,9 +475,11 @@ class EnhancedChatController {
     }));
 
     // /start: verify channels, create or retrieve user profile
-    this.bot.onText(/\/start/, async (msg) => {
+    // Also handles referral links: /start ref_<userId>
+    this.bot.onText(/\/start(.*)/, async (msg, match) => {
       const chatId = msg.chat.id;
       const userId = msg.from.id;
+      const startParam = match[1] ? match[1].trim() : '';
 
       // Channel verification for /start (mandatory if channels configured)
       if (!(await checkUserJoined(this.bot, userId, chatId))) {
@@ -317,14 +509,27 @@ class EnhancedChatController {
           console.log(`📝 Updated user ${userId} from ${user.botId} to ${currentBotId}`);
         }
 
+        // Handle referral link: /start ref_<inviterId>
+        if (startParam.startsWith('ref_') && created) {
+          const inviterId = startParam.replace('ref_', '');
+          if (inviterId && inviterId !== String(userId)) {
+            try {
+              await ReferralService.createReferral(parseInt(inviterId), userId);
+              console.log(`📎 Referral recorded: ${inviterId} -> ${userId}`);
+            } catch (err) {
+              console.error('Error recording referral:', err.message);
+            }
+          }
+        }
+
         // Mark user as having completed /start and accept any pending referrals
-        if (!user.hasStarted) {
+        if (!user.hasStarted || created) {
           try {
             await User.update({ hasStarted: true }, { where: { userId } });
             const accepted = await ReferralService.acceptPendingReferrals(userId);
             if (accepted && accepted > 0) {
               // optional: notify user they triggered referral acceptance
-              await this.bot.sendMessage(userId, `✅ Your referrals were processed (${accepted} accepted).`);
+              await this.bot.sendMessage(userId, `✅ Welcome! Your referral was recorded.`);
             }
           } catch (err) { console.error('Error accepting referrals on start:', err); }
         }
@@ -349,6 +554,84 @@ class EnhancedChatController {
     this.bot.onText(/\/(Male|Female|Other)/, this.withChannelVerification(async (msg, match) => {
       await this.handleGenderSelection(msg, match[1]);
     }));
+
+    // /help command - show comprehensive help information
+    this.bot.onText(/\/help/, this.withChannelVerification(async (msg) => {
+      await this.showHelp(msg);
+    }));
+
+    // /verify command - for admin panel Telegram login
+    this.bot.onText(/\/verify\s*(\d{6})/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const userId = msg.from.id;
+      const username = msg.from.username || msg.from.first_name || `User ${userId}`;
+      const code = match[1];
+      
+      try {
+        // Call admin server to verify the code
+        const adminUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:4000';
+        const botSecret = process.env.BOT_ADMIN_SECRET || 'default-bot-secret';
+        
+        const urlObj = new URL(`${adminUrl}/api/admin/telegram-login/verify`);
+        const postData = JSON.stringify({
+          code,
+          telegramId: userId,
+          username,
+          botSecret
+        });
+        
+        const httpModule = urlObj.protocol === 'https:' ? require('https') : require('http');
+        
+        const result = await new Promise((resolve, reject) => {
+          const req = httpModule.request({
+            hostname: urlObj.hostname,
+            port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+            path: urlObj.pathname,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                reject(new Error('Invalid response from admin server'));
+              }
+            });
+          });
+          
+          req.on('error', reject);
+          req.setTimeout(10000, () => {
+            req.destroy();
+            reject(new Error('Request timeout'));
+          });
+          req.write(postData);
+          req.end();
+        });
+        
+        if (result.success) {
+          await this.bot.sendMessage(chatId, 
+            `✅ *Admin Login Verified!*\n\nYou can now return to the admin panel.\n\nYour Telegram ID: \`${userId}\``,
+            { parse_mode: 'Markdown' }
+          );
+        } else {
+          await this.bot.sendMessage(chatId, 
+            `❌ *Verification Failed*\n\n${result.error || 'Invalid or expired code. Please try again from the admin panel.'}`,
+            { parse_mode: 'Markdown' }
+          );
+        }
+      } catch (error) {
+        console.error('Error verifying admin login:', error.message);
+        await this.bot.sendMessage(chatId, 
+          `❌ *Verification Error*\n\nCould not connect to admin server. Please try again.`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+    });
 
     this.bot.onText(/👨 Male|👩 Female|🌈 Other/, this.withChannelVerification(async (msg) => {
       const userState = global.userConversations[msg.from.id];
@@ -388,6 +671,30 @@ class EnhancedChatController {
       await this.stopChatInternal(msg.chat.id);
     }));
 
+    // /next command - stop current chat and find new partner
+    this.bot.onText(/\/next/, this.withChannelVerification(async (msg) => {
+      await this.handleFind(msg);
+    }));
+
+    // /report command - show report options
+    this.bot.onText(/\/report/, this.withChannelVerification(async (msg) => {
+      const chatId = msg.chat.id;
+      const userId = msg.from.id;
+      
+      // Check if user has a pending rating (meaning they just ended a chat)
+      const pendingRating = ChatRatingService.getPendingRating(userId);
+      if (pendingRating) {
+        // Show report keyboard
+        await this.bot.sendMessage(chatId, '⚠️ Report your previous partner?\n\nSelect a reason:', {
+          reply_markup: ChatRatingService.getReportKeyboard()
+        });
+      } else {
+        await this.bot.sendMessage(chatId, '❓ You can only report after ending a chat.', {
+          ...keyboards.getMainKeyboard()
+        });
+      }
+    }));
+
     // /link command
     this.bot.onText(/\/link/, this.withChannelVerification(async (msg) => {
       await this.shareProfile(msg);
@@ -404,6 +711,8 @@ class EnhancedChatController {
 
     try {
       await User.update({ gender }, { where: { userId } });
+      // Invalidate cache to reflect changes immediately
+      await UserCacheService.invalidate(userId);
       
       if (userState === "awaiting_gender") {
         // New user setup
@@ -415,6 +724,7 @@ class EnhancedChatController {
       } else {
         // Updating existing user
         delete global.userConversations[userId];
+        await UserCacheService.invalidate(userId);
         this.bot.sendMessage(chatId, `✅ *Gender updated to ${gender}!*`, {
           parse_mode: "Markdown",
           ...keyboards.getMainKeyboard()
@@ -461,46 +771,143 @@ class EnhancedChatController {
     }
   }
 
-  // Search handler
+  // Search handler - INSTANT FEEDBACK: Show "Searching" immediately, then validate in background
   async handleSearch(msg) {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
 
-    if (!(await checkUserJoined(this.bot, userId, chatId))) return;
+    // Get searching message from admin panel
+    const searchingMsg = await MessagesService.getSearching() || '🔎 Looking for a partner...\n\n/stop — stop searching';
+
+    // INSTANT FEEDBACK: Send "Searching..." message IMMEDIATELY (before any checks)
+    // This message will be kept and updated by searchPartner, or replaced if match found
+    let searchMsgId = null;
+    try {
+      const instantMsg = await this.bot.sendMessage(chatId, searchingMsg, {
+        parse_mode: 'Markdown',
+        ...keyboards.getMainKeyboard()
+      });
+      searchMsgId = instantMsg.message_id;
+      // Store this message ID so searchPartner can use it
+      global.searchMessages[`${userId}_msgId`] = searchMsgId;
+      global.searchMessages[`${userId}_startTime`] = Date.now();
+    } catch (e) {
+      // If message fails, continue anyway
+    }
+
+    // Helper to update the instant message with error
+    const showError = async (text, keyboard) => {
+      if (searchMsgId) {
+        try {
+          await this.bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: searchMsgId,
+            parse_mode: 'Markdown',
+            reply_markup: keyboard?.reply_markup
+          });
+          return;
+        } catch (e) {}
+      }
+      await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...keyboard });
+    };
+
+    const deleteInstantMsg = async () => {
+      if (searchMsgId) {
+        try { 
+          await this.bot.deleteMessage(chatId, searchMsgId); 
+          delete global.searchMessages[`${userId}_msgId`];
+        } catch (e) {}
+      }
+    };
+
+    // Now do validations in background (user already sees "Searching...")
+    if (!(await checkUserJoined(this.bot, userId, chatId))) {
+      await deleteInstantMsg();
+      return;
+    }
     
     // Track which bot user is using
-    // Map 'default' to 'bot_0' for compatibility
     let currentBotId = this.bot.botId || 'bot_0';
     if (currentBotId === 'default') {
       currentBotId = 'bot_0';
     }
-    await BotRouter.setUserBot(userId, currentBotId);
+    // Don't await this - fire and forget for speed
+    BotRouter.setUserBot(userId, currentBotId).catch(() => {});
     
     // Use cached user data (performance optimization)
     const user = await UserCacheService.getUser(userId);
     if (!user || !user.gender || !user.age) {
-      return this.bot.sendMessage(chatId, "❌ Your profile is incomplete. Use /start to set up your profile.", keyboards.getMainKeyboard());
+      await showError("❌ Your profile is incomplete. Use /start to set up your profile.\n\n💡 Send /start and complete your gender and age selection.", keyboards.getMainKeyboard());
+      return;
     }
+    
     const existingPair = await redisClient.get("pair:" + chatId);
     if (existingPair) {
-      return this.bot.sendMessage(chatId, "❗ You're already in a chat. Use *Stop Chat* to end current chat first.", {
-        parse_mode: "Markdown",
-        ...keyboards.getActiveChatKeyboard()
-      });
+      const inDialogueMsg = await MessagesService.getInDialogue() || '❗️ You are in a dialogue\n\nTo end the dialog, use the /stop command.';
+      await showError(inDialogueMsg, keyboards.getActiveChatKeyboard());
+      return;
     }
+    
+    // DON'T delete instant message - let searchPartner use it or replace it
+    // searchPartner will either find a match (and delete search msg) or keep the rotating search
     await this.searchPartner(chatId);
   }
 
-  // Find handler (stop current + search new)
+  // Find handler (stop current + search new) - INSTANT FEEDBACK
   async handleFind(msg) {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
 
-    if (!(await checkUserJoined(this.bot, userId, chatId))) return;
+    // Get the combined "chat ended + searching" message for /next flow
+    const chatEndedNextMsg = await MessagesService.getChatEndedNext() || '💬 You stopped the chat\n\n🔎 Looking for a new partner...\n\n/stop — stop searching';
+
+    // INSTANT FEEDBACK: Send combined message IMMEDIATELY
+    let searchMsgId = null;
+    try {
+      const instantMsg = await this.bot.sendMessage(chatId, chatEndedNextMsg, {
+        parse_mode: 'Markdown',
+        ...keyboards.getMainKeyboard()
+      });
+      searchMsgId = instantMsg.message_id;
+      // Store for searchPartner to use
+      global.searchMessages[`${userId}_msgId`] = searchMsgId;
+      global.searchMessages[`${userId}_startTime`] = Date.now();
+    } catch (e) {}
+
+    const deleteInstantMsg = async () => {
+      if (searchMsgId) {
+        try { 
+          await this.bot.deleteMessage(chatId, searchMsgId); 
+          delete global.searchMessages[`${userId}_msgId`];
+        } catch (e) {}
+      }
+    };
+
+    const showError = async (text, keyboard) => {
+      if (searchMsgId) {
+        try {
+          await this.bot.editMessageText(text, {
+            chat_id: chatId,
+            message_id: searchMsgId,
+            parse_mode: 'Markdown',
+            reply_markup: keyboard?.reply_markup
+          });
+          return;
+        } catch (e) {}
+      }
+      await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...keyboard });
+    };
+
+    if (!(await checkUserJoined(this.bot, userId, chatId))) {
+      await deleteInstantMsg();
+      return;
+    }
+    
     // Use cached user data (performance optimization)
     const user = await UserCacheService.getUser(userId);
     if (!user || !user.gender || !user.age) {
-      return this.bot.sendMessage(chatId, "❌ Your profile is incomplete. Use /start to set up your profile.", keyboards.getMainKeyboard());
+      await showError("❌ Your profile is incomplete. Use /start to set up your profile.\n\n💡 Send /start and complete your gender and age selection.", keyboards.getMainKeyboard());
+      return;
     }
 
     // If chat is locked (either on this chat or partner's chat), disallow skip/next unless caller is the lock owner
@@ -518,13 +925,17 @@ class EnhancedChatController {
         // Record lock abuse observationally (do not change flow)
         try { await AbuseService.recordLockAbuse({ chatId: lockedRoom, offenderId: userId, ownerId: ownerId, botId: config.BOT_ID || 'default' }); } catch (_) {}
 
-        return this.bot.sendMessage(chatId, '🔒 This chat is locked by your partner.', { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+        await showError('🔒 This chat is locked by your partner.', keyboards.getActiveChatKeyboard());
+        return;
       }
     }
 
+    // DON'T delete message - it will be used by searchPartner
+
     const currentPair = await redisClient.get("pair:" + chatId);
     if (currentPair) {
-      await this.stopChatInternal(chatId, "� Looking for next partner...");
+      // Stop current chat SILENTLY (skipNotification=true) - don't send "chat ended" to caller
+      await this.stopChatInternal(chatId, null, false, true);
       await this.searchPartner(chatId);
     } else {
       await this.searchPartner(chatId);
@@ -546,7 +957,8 @@ class EnhancedChatController {
       });
       await this.bot.sendMessage(chatId, "✅ Your profile link has been sent to your partner.", keyboards.getActiveChatKeyboard());
     } else {
-      this.bot.sendMessage(chatId, enhancedMessages.notPaired, {
+      const notPairedMsg = await MessagesService.getNotPaired() || enhancedMessages.notPaired;
+      this.bot.sendMessage(chatId, notPairedMsg, {
         parse_mode: "Markdown",
         ...keyboards.getMainKeyboard()
       });
@@ -654,14 +1066,21 @@ class EnhancedChatController {
     // Use cached user data (performance optimization)
     const user = await UserCacheService.getUser(userId);
     const currentVipPreference = user?.vipGender || 'Any';
+    const currentAgeMin = user?.vipAgeMin;
+    const currentAgeMax = user?.vipAgeMax;
+    const agePreference = currentAgeMin && currentAgeMax ? `${currentAgeMin} - ${currentAgeMax}` : 'Any';
+    
+    const blurStatus = user?.allowMedia !== false ? '✅ Blur Enabled' : '❌ Blur Disabled';
     
     let settingsMessage = `⚙️ *Settings Menu*\n\n` +
       `Update your profile information:\n` +
       `• 👤 Change your gender\n` +
-      `• 🎂 Update your age\n`;
+      `• 🎂 Update your age\n` +
+      `• 🖼️ Image Blur: ${blurStatus}\n`;
     
     if (isVip) {
       settingsMessage += `• ⭐ Partner Gender Preference: ${currentVipPreference}\n`;
+      settingsMessage += `• 🎯 Partner Age Preference: ${agePreference}\n`;
     }
     
     settingsMessage += `• 📊 View your statistics\n\n` +
@@ -697,6 +1116,49 @@ class EnhancedChatController {
     });
   }
 
+  // Show image blur options (Enable/Disable buttons)
+  async toggleMediaPrivacy(msg) {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    try {
+      const user = await User.findOne({ where: { userId } });
+      if (!user) {
+        return this.bot.sendMessage(chatId, '❌ User profile not found. Please use /start first.');
+      }
+      
+      const currentStatus = user.allowMedia !== false ? '✅ Blur Enabled' : '❌ Blur Disabled';
+      
+      // Set conversation state to handle the choice
+      global.userConversations[userId] = 'changing_blur_setting';
+      
+      const blurChoiceKeyboard = {
+        reply_markup: {
+          keyboard: [
+            [{ text: '✅ Enable Blur' }, { text: '❌ Disable Blur' }],
+            [{ text: '🔙 Back' }]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        }
+      };
+      
+      this.bot.sendMessage(chatId, 
+        `🖼️ *Image Blur Setting*\n\nCurrent: ${currentStatus}\n\n` +
+        `✅ *Enable Blur* - Media appears blurred, click to reveal\n` +
+        `❌ *Disable Blur* - See media directly without blur\n\n` +
+        `👇 Choose an option:`,
+        {
+          parse_mode: 'Markdown',
+          ...blurChoiceKeyboard
+        }
+      );
+    } catch (error) {
+      console.error('Error showing blur options:', error);
+      this.bot.sendMessage(chatId, '❌ Error loading settings. Please try again.');
+    }
+  }
+
   // Update VIP gender preference (only for VIP users)
   async updateVipGenderPreference(msg) {
     const chatId = msg.chat.id;
@@ -714,6 +1176,95 @@ class EnhancedChatController {
     this.bot.sendMessage(chatId, '⭐ *Partner Gender Preference*\n\nChoose which gender you want to match with:\n\n• 👨 Male\n• 👩 Female\n• 🌈 Other\n• 🌐 Any (default)\n\n👇 _Select your preference:_', {
       parse_mode: "Markdown",
       ...keyboards.vipGenderPreferenceSelection
+    });
+  }
+
+  // Update VIP age preference (only for VIP users)
+  async updateVipAgePreference(msg) {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    // Check if user is VIP
+    if (!(await VipService.isVipActive(userId))) {
+      return this.bot.sendMessage(chatId, '❌ This feature is only available for VIP users. Purchase VIP to select partner age preference.', {
+        parse_mode: 'Markdown',
+        ...keyboards.getMainKeyboard()
+      });
+    }
+    
+    // Get current preferences
+    const user = await UserCacheService.getUser(userId);
+    const currentMin = user?.vipAgeMin || 18;
+    const currentMax = user?.vipAgeMax || 99;
+    
+    global.userConversations[userId] = "updating_vip_age_min";
+    this.bot.sendMessage(chatId, `🎯 *Partner Age Preference*\n\nCurrent preference: ${currentMin} - ${currentMax} years\n\nEnter the *minimum age* for your partner (18-99):\n\n_Send "any" to match with any age_`, {
+      parse_mode: "Markdown",
+      ...keyboards.getSettingsKeyboard(true)
+    });
+  }
+
+  // Show comprehensive help
+  async showHelp(msg) {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    const isVip = await VipService.isVipActive(userId);
+
+    let helpText = `📖 *Help & Commands*\n\n`;
+
+    // Basic Commands Section
+    helpText += `*🔹 Basic Commands:*\n`;
+    helpText += `• /start - Start the bot & set up profile\n`;
+    helpText += `• /help - Show this help message\n`;
+    helpText += `• 🔍 Find Partner - Find a chat partner\n`;
+    helpText += `• ❌ Stop Chat - End current chat\n`;
+    helpText += `• ⏭ Next Partner - Skip to next partner\n\n`;
+
+    // Profile & Stats Section
+    helpText += `*🔹 Profile & Stats:*\n`;
+    helpText += `• 👤 My Profile - View your profile\n`;
+    helpText += `• 📊 My Stats - View your statistics\n`;
+    helpText += `• ⚙️ Settings - Update your profile\n`;
+    helpText += `• 🆔 My ID - Get your Telegram ID\n\n`;
+
+    // Chat Features Section
+    helpText += `*🔹 Chat Features:*\n`;
+    helpText += `• 🔒 Lock Chat - Lock chat (prevents partner from leaving)\n`;
+    helpText += `• 📷 Send Media - Photos, videos, voice messages\n`;
+    helpText += `• 👍/👎 Rate Partner - Rate after chat ends\n\n`;
+
+    // VIP Features Section
+    if (isFeatureEnabled('ENABLE_VIP')) {
+      helpText += `*⭐ VIP Features:*\n`;
+      if (isVip) {
+        helpText += `✅ You have VIP access!\n`;
+      } else {
+        helpText += `🔒 Subscribe to VIP for:\n`;
+      }
+      helpText += `• 👥 Choose partner gender preference\n`;
+      helpText += `• 🎯 Choose partner age range\n`;
+      helpText += `• ⚡ Priority matching queue\n`;
+      helpText += `• 🔒 More lock chat credits\n\n`;
+    }
+
+    // Referral Section
+    if (isFeatureEnabled('ENABLE_REFERRALS')) {
+      helpText += `*🎁 Referral Program:*\n`;
+      helpText += `• Invite friends using your referral link\n`;
+      helpText += `• Earn VIP days for each referral\n\n`;
+    }
+
+    // Safety Section
+    helpText += `*🛡️ Safety:*\n`;
+    helpText += `• Report inappropriate behavior after chat\n`;
+    helpText += `• Your identity stays anonymous\n\n`;
+
+    helpText += `_📋 Use /rules to view full rules_`;
+
+    await this.bot.sendMessage(chatId, helpText, {
+      parse_mode: 'Markdown',
+      ...keyboards.getMainKeyboard()
     });
   }
 
@@ -761,25 +1312,48 @@ class EnhancedChatController {
 
   // Message relay with enhanced features
   initializeMessageRelay() {
-      // List of exact button texts to ignore
+    // List of exact button texts to ignore
     const buttonTexts = [
       "🔍 Find Partner", "❌ Stop Chat", "☰ Menu",
-      "👤 My Profile", "📊 My Stats", "⚙️ Settings", "📜 Rules", "🆔 My ID", "⭐ Buy Premium", "🔙 Back",
+      "👤 My Profile", "📊 My Stats", "⚙️ Settings", "📜 Rules", "⭐ Buy Premium", "🔙 Back",
       "⏭ Next Partner", "🔒 Lock Chat",
       "👨 Male", "👩 Female", "🌈 Other", "🌐 Any",
       "👤 Update Gender", "🎂 Update Age", "📊 View Stats", "⭐ Rewards / Redeem", "⭐ Partner Gender Preference"
+      // NOTE: Media Privacy is intentionally NOT ignored so users can toggle anytime
     ];
+
+    const mediaPrivacyChoiceKeyboard = {
+      reply_markup: {
+        keyboard: [
+          [{ text: 'Enable blur' }, { text: 'Disable blur' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    };
 
     this.bot.on("message", async (msg) => {
       // Skip if no text or is a command
       if (!msg.text || msg.text.startsWith("/")) return;
-      
-      // Skip if exact button text match
-      if (buttonTexts.includes(msg.text)) return;
-
       const chatId = msg.chat.id;
       const userId = msg.from.id;
       const text = msg.text.trim();
+      const normalizedText = text.replace(/\uFE0F/g, ''); // strip variation selectors
+
+      // Media privacy toggle (allowed even when not connected)
+      // Match various button formats: emoji, diamond fallback, or plain text
+      const lowerText = normalizedText.toLowerCase();
+      if (normalizedText === '🖼️ Media Privacy' || 
+          normalizedText === '🖼 Media Privacy' || 
+          normalizedText === '◆ Media Privacy' ||
+          lowerText === 'media privacy' ||
+          lowerText.includes('media privacy')) {
+        await this.toggleMediaPrivacy(msg);
+        return;
+      }
+
+      // Skip if exact button text match
+      if (buttonTexts.includes(msg.text)) return;
 
       // Banned users are blocked (use cached data for performance)
       try {
@@ -793,7 +1367,8 @@ class EnhancedChatController {
 
       // Rate limiting
       if (!(await rateLimiter.checkLimit(userId, 'message', 90, 60))) {
-        return this.bot.sendMessage(chatId, enhancedMessages.rateLimited, {
+        const rateLimitedMsg = await MessagesService.getRateLimited() || enhancedMessages.rateLimited;
+        return this.bot.sendMessage(chatId, rateLimitedMsg, {
           parse_mode: "Markdown"
         });
       }
@@ -805,17 +1380,26 @@ class EnhancedChatController {
         if (!isNaN(age) && age > 0 && age < 120) {
           try {
             await User.update({ age }, { where: { userId } });
+            // Invalidate cache to reflect changes immediately
+            await UserCacheService.invalidate(userId);
             delete global.userConversations[userId];
             
             if (userState === "awaiting_age") {
               // New user setup complete
               await this.updateDailyStreak(userId);
-              this.bot.sendMessage(chatId, enhancedMessages.profileComplete, {
+              // Prompt for image blur preference
+              global.userConversations[userId] = 'set_media_privacy';
+              await this.bot.sendMessage(chatId, enhancedMessages.profileComplete, {
                 parse_mode: "Markdown",
                 ...keyboards.getMainKeyboard()
               });
+              await this.bot.sendMessage(chatId, '🖼️ *Image Blur Setting*\n\nWould you like to blur media (photos/videos) from partners?\n\n✅ *Enable blur* - Media appears blurred, click to reveal\n❌ *Disable blur* - See media directly without blur', {
+                parse_mode: 'Markdown',
+                ...mediaPrivacyChoiceKeyboard
+              });
             } else {
               // Age update
+              await UserCacheService.invalidate(userId);
               this.bot.sendMessage(chatId, `✅ *Age updated to ${age}!*`, {
                 parse_mode: "Markdown",
                 ...keyboards.getMainKeyboard()
@@ -831,9 +1415,132 @@ class EnhancedChatController {
         return;
       }
 
+      // Handle VIP age preference - minimum age input
+      if (userState === "updating_vip_age_min") {
+        const lowerText = text.toLowerCase().trim();
+        
+        // Check for "any" to reset preferences
+        if (lowerText === 'any' || lowerText === 'reset') {
+          await User.update({ vipAgeMin: null, vipAgeMax: null }, { where: { userId } });
+          await UserCacheService.invalidate(userId);
+          delete global.userConversations[userId];
+          return this.bot.sendMessage(chatId, '✅ *Age preference reset!*\n\nYou will now be matched with partners of any age.', {
+            parse_mode: 'Markdown',
+            ...keyboards.getMainKeyboard()
+          });
+        }
+        
+        const minAge = parseInt(text);
+        if (!isNaN(minAge) && minAge >= 18 && minAge <= 99) {
+          // Store temporarily and ask for max age
+          global.userConversations[userId] = "updating_vip_age_max";
+          global.userConversations[`${userId}_minAge`] = minAge;
+          return this.bot.sendMessage(chatId, `✅ Minimum age set to *${minAge}*\n\nNow enter the *maximum age* for your partner (${minAge}-99):`, {
+            parse_mode: 'Markdown',
+            ...keyboards.getSettingsKeyboard(true)
+          });
+        } else {
+          return this.bot.sendMessage(chatId, "❌ Invalid age. Please enter a number between 18-99.");
+        }
+      }
+
+      // Handle VIP age preference - maximum age input
+      if (userState === "updating_vip_age_max") {
+        const maxAge = parseInt(text);
+        const minAge = global.userConversations[`${userId}_minAge`] || 18;
+        
+        if (!isNaN(maxAge) && maxAge >= minAge && maxAge <= 99) {
+          await User.update({ vipAgeMin: minAge, vipAgeMax: maxAge }, { where: { userId } });
+          await UserCacheService.invalidate(userId);
+          delete global.userConversations[userId];
+          delete global.userConversations[`${userId}_minAge`];
+          
+          return this.bot.sendMessage(chatId, `✅ *Age preference updated!*\n\nYou will now be matched with partners aged *${minAge} - ${maxAge}* years.`, {
+            parse_mode: 'Markdown',
+            ...keyboards.getMainKeyboard()
+          });
+        } else {
+          return this.bot.sendMessage(chatId, `❌ Invalid age. Please enter a number between ${minAge}-99.`);
+        }
+      }
+
+      // Handle image blur onboarding choice
+      if (userState === 'set_media_privacy') {
+        const lower = text.toLowerCase();
+        const enable = lower.includes('enable');
+        const disable = lower.includes('disable');
+        if (!enable && !disable) {
+          return this.bot.sendMessage(chatId, 'Please choose "Enable blur" or "Disable blur".', {
+            ...mediaPrivacyChoiceKeyboard
+          });
+        }
+        const newValue = enable;
+        await User.update({ allowMedia: newValue }, { where: { userId } });
+        await UserCacheService.invalidate(userId);
+        delete global.userConversations[userId];
+
+        const statusEmoji = newValue ? '✅' : '❌';
+        const statusText = newValue ? 'ENABLED' : 'DISABLED';
+        const explanation = newValue 
+          ? '🔒 Media from partners will appear BLURRED. Click on images/videos to reveal them.'
+          : '📷 Media from partners will appear UNBLURRED. You will see images/videos directly.';
+
+        await this.bot.sendMessage(chatId,
+          `${statusEmoji} *Image Blur ${statusText}*\n\n${explanation}\n\nYou can change this anytime from Settings → Media Privacy.`,
+          { parse_mode: 'Markdown', ...keyboards.getMainKeyboard() }
+        );
+        return;
+      }
+
+      // Handle blur setting change from Settings menu
+      if (userState === 'changing_blur_setting') {
+        const lower = text.toLowerCase();
+        
+        // Handle Back button
+        if (text === '🔙 Back' || lower === 'back') {
+          delete global.userConversations[userId];
+          return this.showSettings({ chat: { id: chatId }, from: { id: userId } });
+        }
+        
+        const enable = lower.includes('enable');
+        const disable = lower.includes('disable');
+        
+        if (!enable && !disable) {
+          const blurChoiceKeyboard = {
+            reply_markup: {
+              keyboard: [
+                [{ text: '✅ Enable Blur' }, { text: '❌ Disable Blur' }],
+                [{ text: '🔙 Back' }]
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: true
+            }
+          };
+          return this.bot.sendMessage(chatId, 'Please choose "Enable Blur" or "Disable Blur".', {
+            ...blurChoiceKeyboard
+          });
+        }
+        
+        const newValue = enable;
+        await User.update({ allowMedia: newValue }, { where: { userId } });
+        await UserCacheService.invalidate(userId);
+        delete global.userConversations[userId];
+
+        const statusEmoji = newValue ? '✅' : '❌';
+        const statusText = newValue ? 'ENABLED' : 'DISABLED';
+        const explanation = newValue 
+          ? '🔒 Media from partners will appear BLURRED. Click on images/videos to reveal them.'
+          : '📷 Media from partners will appear UNBLURRED. You will see images/videos directly.';
+
+        await this.bot.sendMessage(chatId,
+          `${statusEmoji} *Image Blur ${statusText}*\n\n${explanation}\n\n💡 You can change this anytime in Settings.`,
+          { parse_mode: 'Markdown', ...keyboards.getSettingsKeyboard(await VipService.isVipActive(userId)) }
+        );
+        return;
+      }
+
       // Forward message to partner
       const partnerId = await redisClient.get("pair:" + chatId);
-      console.log(`Debug: chatId=${chatId}, partnerId=${partnerId}, text="${text}"`);
       
       if (partnerId && partnerId !== chatId.toString()) {
         try {
@@ -850,9 +1557,11 @@ class EnhancedChatController {
           
           // Use BotRouter to send to correct bot instance (cross-bot support)
           await BotRouter.sendMessage(partnerId, text);
-          console.log(`Message sent from ${chatId} to ${partnerId}: "${text}"`);
+          
+          // Log to file only
+          require('../utils/logger').debug('Message forwarded', { from: chatId, to: partnerId, text: text.substring(0, 50) });
         } catch (error) {
-          console.error("Error relaying message:", error);
+          require('../utils/logger').error('Error relaying message', error, { from: chatId, to: partnerId });
           // Don't show error to user if partner blocked bot
           if (error?.response?.body?.error_code !== 403) {
             await this.bot.sendMessage(chatId, '❌ Failed to send message. Your partner may have left.').catch(() => {});
@@ -904,13 +1613,13 @@ class EnhancedChatController {
       // (Preserve active chat benefits until chat end.)
 
       // Pair users
-      await redisClient.set('pair:' + chatId, partnerId);
-      await redisClient.set('pair:' + partnerId, chatId);
+      await redisClient.set('pair:' + chatId, String(partnerId));
+      await redisClient.set('pair:' + partnerId, String(chatId));
 
       // mark recent partners for 20 minutes (prevent re-matching too quickly)
-      await redisClient.lPush(`user:recentPartners:${chatId}`, partnerId);
+      await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
       await redisClient.expire(`user:recentPartners:${chatId}`, 1200); // 20 minutes
-      await redisClient.lPush(`user:recentPartners:${partnerId}`, chatId);
+      await redisClient.lPush(`user:recentPartners:${partnerId}`, String(chatId));
       await redisClient.expire(`user:recentPartners:${partnerId}`, 1200); // 20 minutes
 
       // Increment counts
@@ -991,15 +1700,107 @@ class EnhancedChatController {
       if (!alreadyQueued) {
         await MatchingService.enqueueUser(botId, userId);
         
-        // Send initial short search message (rotate through messages)
+        // IMMEDIATE RETRY: Try matching again after enqueue (handles race conditions)
+        // This catches cases where another user enqueued just before us
+        const retryPartner = await MatchingService.matchNextUser(botId, userId, preferences);
+        if (retryPartner) {
+          // Found match on retry - recurse with success case
+          const partnerId = retryPartner.toString();
+          
+          // Pair users
+          await redisClient.set('pair:' + chatId, String(partnerId));
+          await redisClient.set('pair:' + partnerId, String(chatId));
+          
+          // Mark recent partners
+          await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
+          await redisClient.expire(`user:recentPartners:${chatId}`, 1200);
+          await redisClient.lPush(`user:recentPartners:${partnerId}`, String(chatId));
+          await redisClient.expire(`user:recentPartners:${partnerId}`, 1200);
+          
+          // Cleanup search messages and intervals
+          if (global.searchIntervals[userId]) {
+            clearInterval(global.searchIntervals[userId]);
+            delete global.searchIntervals[userId];
+          }
+          const searchMsgId = global.searchMessages[`${userId}_msgId`];
+          if (searchMsgId) {
+            try { await this.bot.deleteMessage(chatId, searchMsgId).catch(() => {}); } catch (e) {}
+            delete global.searchMessages[`${userId}_msgId`];
+          }
+          delete global.searchMessages[userId];
+          
+          // Increment counts
+          await this.incrementTotalChats(chatId);
+          await this.incrementTotalChats(partnerId);
+          
+          // Build and send profile messages
+          const partnerUser = await UserCacheService.getUser(partnerId);
+          let profileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
+          if (partnerUser?.age) profileMsg += `Age: ${partnerUser.age}\n`;
+          if (partnerUser?.gender) {
+            const genderEmoji = partnerUser.gender === 'Male' ? '👱‍♂' : partnerUser.gender === 'Female' ? '👩' : '🌈';
+            profileMsg += `Gender: ${partnerUser.gender} ${genderEmoji}`;
+          }
+          if (!partnerUser?.age && !partnerUser?.gender) profileMsg += `Profile details not available`;
+          await BotRouter.sendMessage(chatId, profileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+          
+          // Partner's search cleanup
+          if (global.searchIntervals[partnerId]) {
+            clearInterval(global.searchIntervals[partnerId]);
+            delete global.searchIntervals[partnerId];
+          }
+          const partnerSearchMsgId = global.searchMessages[`${partnerId}_msgId`];
+          if (partnerSearchMsgId) {
+            try { await this.bot.deleteMessage(partnerId, partnerSearchMsgId).catch(() => {}); } catch (e) {}
+            delete global.searchMessages[`${partnerId}_msgId`];
+          }
+          delete global.searchMessages[partnerId];
+          
+          const currentUser = await UserCacheService.getUser(userId);
+          let partnerProfileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
+          if (currentUser?.age) partnerProfileMsg += `Age: ${currentUser.age}\n`;
+          if (currentUser?.gender) {
+            const genderEmoji = currentUser.gender === 'Male' ? '👱‍♂' : currentUser.gender === 'Female' ? '👩' : '🌈';
+            partnerProfileMsg += `Gender: ${currentUser.gender} ${genderEmoji}`;
+          }
+          if (!currentUser?.age && !currentUser?.gender) partnerProfileMsg += `Profile details not available`;
+          await BotRouter.sendMessage(partnerId, partnerProfileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+          
+          return; // Match found on retry, done
+        }
+        
+        // Check if we already have an instant search message from handleSearch/handleFind
+        let existingMsgId = global.searchMessages[`${userId}_msgId`];
         const messageIndex = (global.searchMessages[userId] || 0) % SEARCH_MESSAGES.length;
         const searchMsg = SEARCH_MESSAGES[messageIndex];
         global.searchMessages[userId] = (messageIndex + 1) % SEARCH_MESSAGES.length;
         
-        const sentMsg = await this.bot.sendMessage(chatId, searchMsg, { parse_mode: 'Markdown', ...keyboards.getMainKeyboard() });
+        if (existingMsgId) {
+          // Use existing message - edit it to show first rotation message
+          try {
+            await this.bot.editMessageText(searchMsg, {
+              chat_id: chatId,
+              message_id: existingMsgId,
+              parse_mode: 'Markdown',
+              reply_markup: keyboards.getMainKeyboard().reply_markup
+            });
+          } catch (e) {
+            // If edit fails, send new message
+            const sentMsg = await this.bot.sendMessage(chatId, searchMsg, { parse_mode: 'Markdown', ...keyboards.getMainKeyboard() });
+            global.searchMessages[`${userId}_msgId`] = sentMsg.message_id;
+            existingMsgId = sentMsg.message_id;
+          }
+        } else {
+          // No existing message, send new one
+          const sentMsg = await this.bot.sendMessage(chatId, searchMsg, { parse_mode: 'Markdown', ...keyboards.getMainKeyboard() });
+          global.searchMessages[`${userId}_msgId`] = sentMsg.message_id;
+          existingMsgId = sentMsg.message_id;
+        }
         
-        // Store message ID to delete when match found
-        global.searchMessages[`${userId}_msgId`] = sentMsg.message_id;
+        // Track start time for auto-cleanup of abandoned searches
+        if (!global.searchMessages[`${userId}_startTime`]) {
+          global.searchMessages[`${userId}_startTime`] = Date.now();
+        }
         
         // Set up rotating message updates (every 3 seconds, rotate through messages)
         if (global.searchIntervals[userId]) {
@@ -1084,7 +1885,8 @@ class EnhancedChatController {
   }
 
   // Stop chat
-  async stopChatInternal(chatId, customMessage, notifyAdmin = false) {
+  // skipCallerNotification: if true, don't send messages to the caller (used when transitioning to new partner search)
+  async stopChatInternal(chatId, customMessage, notifyAdmin = false, skipCallerNotification = false) {
     try {
       // Block stop/skip if there is any active lock and caller is not lock owner
       const partnerId = await redisClient.get("pair:" + chatId);
@@ -1112,22 +1914,21 @@ class EnhancedChatController {
         // Force clear old keyboard first (prevent client-side caching)
         await BotRouter.sendMessage(partnerId, '👋', keyboards.getMainKeyboardForceClear()).catch(() => {});
         
+        // Get dynamic partner left message
+        const partnerLeftMsg = await MessagesService.getPartnerLeft() || enhancedMessages.partnerLeft;
         // Send main keyboard to reset UI state
-        await BotRouter.sendMessage(partnerId, enhancedMessages.partnerLeft, {
+        await BotRouter.sendMessage(partnerId, partnerLeftMsg, {
           parse_mode: 'Markdown',
           ...keyboards.getMainKeyboard()
         });
         
-        // Send rating buttons
-        const ratingKeyboard = {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '👍 Good Chat', callback_data: 'RATE:GOOD' }, { text: '👎 Poor Chat', callback_data: 'RATE:POOR' }],
-              [{ text: '⭐ Amazing Chat', callback_data: 'RATE:AMAZING' }]
-            ]
-          }
-        };
-        await BotRouter.sendMessage(partnerId, '', ratingKeyboard).catch(() => {});
+        // Store pending rating for partner (so they can rate the user who left)
+        stateManager.setPendingRating(partnerId, chatId);
+        
+        // Send new rating keyboard (thumbs up/down, skip, report)
+        await BotRouter.sendMessage(partnerId, 'How was your chat?', {
+          reply_markup: ChatRatingService.getRatingKeyboard()
+        }).catch(() => {});
         
         await redisClient.del("pair:" + partnerId);
       }
@@ -1167,17 +1968,30 @@ class EnhancedChatController {
       await redisClient.lRem(keys.QUEUE_VIP_KEY(botId), 0, chatId.toString()).catch(() => {});
       await redisClient.lRem(keys.QUEUE_GENERAL_KEY(botId), 0, chatId.toString()).catch(() => {});
 
-      // Ensure message contains a lowercase 'ended' token for smoke tests that look for it
-      const endMsg = (customMessage || enhancedMessages.chatEnded) + '\nended';
-      
-      // Force clear old keyboard to prevent client-side caching before sending new main keyboard
-      await this.bot.sendMessage(chatId, endMsg, keyboards.getMainKeyboardForceClear()).catch(() => {});
-      
-      // Now send main keyboard
-      await this.bot.sendMessage(chatId, '✅ Ready to chat again?', {
-        parse_mode: "Markdown",
-        ...keyboards.getMainKeyboard()
-      }).catch(err => console.error('Error sending end message:', err));
+      // Only send messages to caller if not skipping (e.g., when transitioning to new partner search)
+      if (!skipCallerNotification) {
+        // Get dynamic chat ended message
+        const chatEndedMsg = await MessagesService.getChatEnded() || enhancedMessages.chatEnded;
+        // Ensure message contains a lowercase 'ended' token for smoke tests that look for it
+        const endMsg = (customMessage || chatEndedMsg) + '\nended';
+        
+        // Force clear old keyboard to prevent client-side caching before sending new main keyboard
+        await this.bot.sendMessage(chatId, endMsg, keyboards.getMainKeyboardForceClear()).catch(() => {});
+        
+        // Now send main keyboard
+        await this.bot.sendMessage(chatId, '✅ Ready to chat again?', {
+          parse_mode: "Markdown",
+          ...keyboards.getMainKeyboard()
+        }).catch(err => console.error('Error sending end message:', err));
+        
+        // Send rating prompt to the caller too (if they had a partner)
+        if (partnerId && partnerId !== chatId.toString()) {
+          stateManager.setPendingRating(chatId, partnerId);
+          await this.bot.sendMessage(chatId, 'How was your chat?', {
+            reply_markup: ChatRatingService.getRatingKeyboard()
+          }).catch(() => {});
+        }
+      }
 
       const adminId = config.ADMIN_CONTROL_CHAT_ID || config.ADMIN_CHAT_ID;
       if (notifyAdmin && adminId && isFeatureEnabled('ENABLE_ADMIN_ALERTS')) {
@@ -1190,14 +2004,16 @@ class EnhancedChatController {
         await redisClient.del("pair:" + chatId).catch(() => {});
       } catch (_) {}
       
-      // Always send main keyboard to user (force clear first)
-      try {
-        await this.bot.sendMessage(chatId, '❌ Chat ended.', keyboards.getMainKeyboardForceClear()).catch(() => {});
-        await this.bot.sendMessage(chatId, 'Ready for another chat?', {
-          parse_mode: 'Markdown',
-          ...keyboards.getMainKeyboard()
-        }).catch(() => {});
-      } catch (_) {}
+      // Always send main keyboard to user (force clear first) - unless skipping
+      if (!skipCallerNotification) {
+        try {
+          await this.bot.sendMessage(chatId, '❌ Chat ended.', keyboards.getMainKeyboardForceClear()).catch(() => {});
+          await this.bot.sendMessage(chatId, 'Ready for another chat?', {
+            parse_mode: 'Markdown',
+            ...keyboards.getMainKeyboard()
+          }).catch(() => {});
+        } catch (_) {}
+      }
     }
   }
 
@@ -1257,8 +2073,10 @@ class EnhancedChatController {
       if (totalMinutes === 0) {
         // No credits - show buy prompt with lock duration purchase options
         const starsPricing = require('../constants/starsPricing');
-        const lockButtons = Object.keys(starsPricing.LOCK || {}).map(dur => ([{ 
-          text: `${dur} min (${starsPricing.LOCK[dur]}⭐)`, 
+        // Use dynamic pricing from admin panel
+        const lockPricing = await starsPricing.getLockPricing();
+        const lockButtons = Object.keys(lockPricing || {}).map(dur => ([{ 
+          text: `${dur} min (${lockPricing[dur]}⭐)`, 
           callback_data: `STAR_BUY:LOCK:${dur}` 
         }]));
         

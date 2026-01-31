@@ -50,7 +50,8 @@ class AffiliateRedemptionService {
       } else if (credit.rewardType === 'LOCK_MINUTES') {
         try {
           // Create a LockCredit record to add minutes to user's balance
-          await LockCredit.create({ userId: telegramId, minutes: credit.rewardValue, remainingMinutes: credit.rewardValue, source: 'affiliate_reward' }, { transaction: t });
+          // Note: LockCredit uses 'telegramId' field, not 'userId'
+          await LockCredit.create({ telegramId: telegramId, minutes: credit.rewardValue, consumed: 0 }, { transaction: t });
         } catch (err) {
           logger.appendJsonLog('affiliate_redemptions.log', { ts: new Date().toISOString(), telegramId, creditId, status: 'FAILED', reason: 'lock_credit_failed', error: String(err) });
           return { success: false, reason: 'lock_credit_failed' };

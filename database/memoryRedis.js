@@ -100,7 +100,13 @@ class MemoryRedis {
 
   // Utility operations
   async keys(pattern) {
-    const keys = Array.from(this.data.keys());
+    // Combine keys from both data and lists maps
+    const allKeys = new Set([
+      ...Array.from(this.data.keys()),
+      ...Array.from(this.lists.keys())
+    ]);
+    const keys = Array.from(allKeys);
+    
     if (pattern === "*") return keys;
     
     // Simple pattern matching for "prefix:*"

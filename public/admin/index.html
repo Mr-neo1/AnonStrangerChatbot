@@ -1,0 +1,1911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Anonymous Chat Bot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81' },
+            dark: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a', 950: '#020617' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .stat-card { transition: all 0.2s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); }
+    .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); transition: all 0.2s; }
+    .btn-primary:hover { box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4); }
+    .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+    .btn-success { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+    .btn-warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+    .toggle { position: relative; width: 44px; height: 24px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: #475569; border-radius: 24px; transition: 0.3s; }
+    .toggle-slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+    .toggle input:checked + .toggle-slider { background: #22c55e; }
+    .toggle input:checked + .toggle-slider:before { transform: translateX(20px); }
+    .gradient-text { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .input-field { width: 100%; padding: 10px 14px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; color: white; outline: none; transition: border-color 0.2s; }
+    .input-field:focus { border-color: #6366f1; }
+    .table-row:hover { background: #1e293b; }
+  </style>
+</head>
+<body class="bg-dark-950 text-dark-100 min-h-screen">
+  
+  <!-- Login Screen -->
+  <div id="loginScreen" class="flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-md fade-in">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 mb-4">
+          <span class="text-3xl">🤖</span>
+        </div>
+        <h1 class="text-2xl font-bold gradient-text">Admin Dashboard</h1>
+        <p class="text-dark-400 mt-1 text-sm">Anonymous Chat Bot Management</p>
+      </div>
+      
+      <div class="bg-dark-900 rounded-xl p-6 border border-dark-800">
+        <div class="flex gap-2 mb-5 p-1 bg-dark-800 rounded-lg">
+          <button onclick="switchLoginTab('telegram')" id="tabTelegram" class="flex-1 py-2 px-3 rounded-md text-sm font-medium bg-primary-600 text-white">📱 Telegram</button>
+          <button onclick="switchLoginTab('otp')" id="tabOtp" class="flex-1 py-2 px-3 rounded-md text-sm font-medium text-dark-400 hover:text-white">🔢 OTP</button>
+        </div>
+        
+        <div id="telegramLoginSection">
+          <p class="text-dark-400 text-sm mb-4 text-center">Click to login via Telegram</p>
+          <div id="telegramWidgetContainer" class="text-center">
+            <button onclick="startTelegramLogin()" class="btn-primary px-6 py-2.5 rounded-lg font-medium text-white inline-flex items-center gap-2">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.015-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.752-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.477-1.635.099-.002.321.023.465.141.121.1.154.234.17.333.015.099.034.323.019.498z"/></svg>
+              Login with Telegram
+            </button>
+          </div>
+          <div id="telegramWaiting" class="hidden text-center">
+            <div class="w-10 h-10 border-3 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <p class="text-dark-300 text-sm mb-2">Send this to any bot:</p>
+            <code id="verifyCode" class="block text-lg font-mono font-bold text-primary-400 bg-dark-800 px-4 py-2 rounded-lg">/verify CODE</code>
+            <p id="tokenExpiry" class="text-dark-500 text-xs mt-2"></p>
+            <button onclick="resetTelegramLogin()" class="mt-3 text-dark-400 hover:text-white text-xs underline">Cancel</button>
+          </div>
+        </div>
+        
+        <div id="otpLoginSection" class="hidden">
+          <div id="otpStep1">
+            <p class="text-dark-400 text-sm mb-3 text-center">Enter your Telegram ID</p>
+            <input type="text" id="otpTelegramId" placeholder="e.g. 1893973888" class="input-field mb-3">
+            <button onclick="requestOtp()" class="btn-primary w-full py-2.5 rounded-lg font-medium text-white">Send OTP</button>
+          </div>
+          <div id="otpStep2" class="hidden">
+            <p class="text-dark-400 text-sm mb-3 text-center">Enter 6-digit OTP</p>
+            <input type="text" id="otpCode" placeholder="000000" maxlength="6" class="input-field mb-3 text-center text-xl tracking-widest font-mono">
+            <button onclick="verifyOtp()" class="btn-primary w-full py-2.5 rounded-lg font-medium text-white mb-2">Verify</button>
+            <button onclick="resetOtpLogin()" class="w-full py-2 text-dark-400 hover:text-white text-sm">Back</button>
+          </div>
+        </div>
+        <p id="loginError" class="text-red-400 text-center text-sm mt-3 hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden">
+    <aside id="sidebar" class="fixed left-0 top-0 h-full w-56 bg-dark-900 border-r border-dark-800 z-40 transform -translate-x-full lg:translate-x-0 transition-transform overflow-y-auto">
+      <div class="p-4 border-b border-dark-800">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
+            <span class="text-lg">🤖</span>
+          </div>
+          <div>
+            <h1 class="font-bold text-white text-sm">Admin Panel</h1>
+            <p class="text-xs text-dark-500">v2.0</p>
+          </div>
+        </div>
+      </div>
+      
+      <nav class="p-2 space-y-0.5 text-sm">
+        <button onclick="switchTab('overview')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="overview">📊 Overview</button>
+        <button onclick="switchTab('analytics')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="analytics">📈 Analytics</button>
+        <button onclick="switchTab('users')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="users">👥 Users</button>
+        <button onclick="switchTab('bots')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="bots">🤖 Bots</button>
+        <button onclick="switchTab('vip')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="vip">⭐ VIP Plans</button>
+        <button onclick="switchTab('lockchat')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="lockchat">🔒 Lock Chat</button>
+        <button onclick="switchTab('broadcast')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="broadcast">📢 Broadcast</button>
+        <div class="pt-2 mt-2 border-t border-dark-800">
+          <p class="px-3 text-xs font-semibold text-dark-500 uppercase mb-1">Settings</p>
+          <button onclick="switchTab('messages')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="messages">💬 Bot Messages</button>
+          <button onclick="switchTab('config')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="config">⚙️ Config</button>
+          <button onclick="switchTab('export')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="export">📤 Export</button>
+          <button onclick="switchTab('audit')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="audit">📝 Audit Logs</button>
+          <button onclick="switchTab('maintenance')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="maintenance">🔧 Maintenance</button>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="lg:ml-56">
+      <header class="sticky top-0 z-30 bg-dark-950/90 backdrop-blur border-b border-dark-800">
+        <div class="flex items-center justify-between px-4 py-3">
+          <div class="flex items-center gap-3">
+            <button onclick="toggleSidebar()" class="lg:hidden p-2 rounded-lg hover:bg-dark-800">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <h2 id="pageTitle" class="text-lg font-semibold">Overview</h2>
+          </div>
+          <div class="flex items-center gap-3">
+            <div id="maintenanceIndicator" class="hidden items-center gap-1.5 px-2 py-1 bg-yellow-500/20 border border-yellow-500/30 rounded-full">
+              <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+              <span class="text-yellow-400 text-xs font-medium">Maintenance</span>
+            </div>
+            <span id="adminName" class="text-sm text-dark-300">Admin</span>
+            <button onclick="logout()" class="p-1.5 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-red-400" title="Logout">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="p-4">
+        <!-- Overview Tab -->
+        <section id="tab-overview" class="tab-content fade-in">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">Total Users</div>
+              <div id="stat-totalUsers" class="text-xl font-bold text-white">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">🟢 Online</div>
+              <div id="stat-onlineUsers" class="text-xl font-bold text-green-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">⭐ VIP Active</div>
+              <div id="stat-vipActive" class="text-xl font-bold text-yellow-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">📅 Today</div>
+              <div id="stat-todayUsers" class="text-xl font-bold text-blue-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">💬 Chats</div>
+              <div id="stat-activeChats" class="text-xl font-bold text-purple-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">⏳ Queue</div>
+              <div id="stat-queueSize" class="text-xl font-bold text-cyan-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl p-4 border border-dark-800">
+              <div class="text-xs text-dark-500 mb-1">🚫 Banned</div>
+              <div id="stat-bannedUsers" class="text-xl font-bold text-red-400">-</div>
+            </div>
+          </div>
+          
+          <div class="grid lg:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-3">Quick Actions</h3>
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="broadcastToAll()" class="bg-dark-800 hover:bg-dark-700 px-3 py-2 rounded-lg text-sm">📢 Broadcast</button>
+                <button onclick="switchTab('users')" class="bg-dark-800 hover:bg-dark-700 px-3 py-2 rounded-lg text-sm">👥 Manage Users</button>
+                <button onclick="refreshAllBots()" class="bg-dark-800 hover:bg-dark-700 px-3 py-2 rounded-lg text-sm">🔄 Refresh Bots</button>
+                <button onclick="switchTab('maintenance')" class="bg-dark-800 hover:bg-dark-700 px-3 py-2 rounded-lg text-sm">🔧 Maintenance</button>
+              </div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-3">System Status</h3>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-dark-400">Database</span><span class="text-green-400">● Connected</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Redis</span><span class="text-green-400">● Connected</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Bots Running</span><span id="botsRunning" class="text-green-400">6/6</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Maintenance</span><span id="maintenanceStatus" class="text-dark-400">Off</span></div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- User Quick Actions Panel -->
+          <div class="mt-4 bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <h3 class="font-semibold text-white mb-4">🔍 User Quick Lookup & Actions</h3>
+            
+            <div class="grid md:grid-cols-2 gap-4">
+              <!-- User Lookup -->
+              <div class="space-y-3">
+                <div class="flex gap-2">
+                  <input type="text" id="quickUserId" placeholder="Enter User ID..." class="input-field flex-1">
+                  <button onclick="quickUserLookup()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">Lookup</button>
+                </div>
+                
+                <!-- User Info Display -->
+                <div id="quickUserInfo" class="hidden bg-dark-800 rounded-lg p-3 space-y-2 text-sm">
+                  <div class="flex justify-between items-center border-b border-dark-700 pb-2 mb-2">
+                    <span class="font-semibold text-white">User Details</span>
+                    <span id="quickUserStatus" class="px-2 py-1 rounded text-xs"></span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div><span class="text-dark-400">ID:</span> <span id="quickInfo-userId" class="text-white font-mono"></span></div>
+                    <div><span class="text-dark-400">Username:</span> <span id="quickInfo-username" class="text-blue-400"></span></div>
+                    <div><span class="text-dark-400">Name:</span> <span id="quickInfo-name" class="text-white"></span></div>
+                    <div><span class="text-dark-400">Gender/Age:</span> <span id="quickInfo-genderAge" class="text-white"></span></div>
+                    <div><span class="text-dark-400">VIP:</span> <span id="quickInfo-vip" class="text-yellow-400"></span></div>
+                    <div><span class="text-dark-400">Total Chats:</span> <span id="quickInfo-totalChats" class="text-white"></span></div>
+                  </div>
+                  <div id="quickPartnerSection" class="mt-3 pt-2 border-t border-dark-700 hidden">
+                    <span class="text-dark-400 text-xs">Currently chatting with:</span>
+                    <div class="bg-dark-900 rounded p-2 mt-1">
+                      <span id="quickInfo-partnerId" class="text-green-400 font-mono"></span>
+                      <span id="quickInfo-partnerName" class="text-dark-300 ml-2"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Quick Actions on User -->
+              <div class="space-y-3">
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <h4 class="text-sm font-semibold text-white mb-3">Actions on User</h4>
+                  <div class="space-y-2">
+                    <button onclick="quickDisconnectUser()" class="w-full bg-red-900/50 hover:bg-red-800/70 text-red-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                      <span>❌</span> Force Disconnect
+                    </button>
+                    <button onclick="showQuickMessageModal()" class="w-full bg-blue-900/50 hover:bg-blue-800/70 text-blue-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                      <span>💬</span> Send Direct Message
+                    </button>
+                    <button onclick="quickBanUser()" id="quickBanBtn" class="w-full bg-orange-900/50 hover:bg-orange-800/70 text-orange-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                      <span>🚫</span> Ban User
+                    </button>
+                    <button onclick="quickGiveVip()" class="w-full bg-yellow-900/50 hover:bg-yellow-800/70 text-yellow-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                      <span>⭐</span> Give VIP (30 days)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Quick Message Modal -->
+          <div id="quickMessageModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-md mx-4">
+              <h3 class="text-lg font-semibold text-white mb-4">💬 Send Direct Message</h3>
+              <p class="text-dark-400 text-sm mb-4">Sending to user: <span id="quickMsgUserId" class="text-white font-mono"></span></p>
+              <textarea id="quickMessageText" rows="4" class="input-field w-full mb-3" placeholder="Enter your message..."></textarea>
+              <label class="flex items-center gap-2 text-sm text-dark-300 mb-4">
+                <input type="checkbox" id="quickMsgDisconnect" checked class="rounded">
+                Disconnect user from current partner first
+              </label>
+              <div class="flex gap-3">
+                <button onclick="closeQuickMessageModal()" class="flex-1 bg-dark-700 hover:bg-dark-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
+                <button onclick="sendQuickMessage()" class="flex-1 btn-primary px-4 py-2 rounded-lg text-sm text-white">Send Message</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Analytics Tab -->
+        <section id="tab-analytics" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-4">
+            <div class="flex flex-wrap items-center gap-3 mb-4">
+              <input type="date" id="analyticsStartDate" class="input-field w-auto">
+              <span class="text-dark-500">to</span>
+              <input type="date" id="analyticsEndDate" class="input-field w-auto">
+              <button onclick="loadAnalytics()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">Load Data</button>
+            </div>
+            <div class="h-64">
+              <canvas id="analyticsChart"></canvas>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-4 gap-3">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">New Users (Period)</div>
+              <div id="analytics-newUsers" class="text-2xl font-bold text-blue-400 mt-1">-</div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">Total Chats</div>
+              <div id="analytics-totalChats" class="text-2xl font-bold text-purple-400 mt-1">-</div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">VIP Revenue</div>
+              <div id="analytics-vipRevenue" class="text-2xl font-bold text-yellow-400 mt-1">-</div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">Avg Rating</div>
+              <div id="analytics-avgRating" class="text-2xl font-bold text-green-400 mt-1">-</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Users Tab -->
+        <section id="tab-users" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden">
+            <div class="p-4 border-b border-dark-800 flex flex-wrap items-center gap-3">
+              <input type="text" id="userSearch" placeholder="Search by ID or username..." class="input-field flex-1 min-w-[200px]" onkeyup="if(event.key==='Enter')searchUsers()">
+              <select id="userFilter" class="input-field w-auto" onchange="loadUsers()">
+                <option value="">All Users</option>
+                <option value="vip">VIP Only</option>
+                <option value="banned">Banned</option>
+                <option value="active">Active (Online)</option>
+              </select>
+              <button onclick="searchUsers()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">Search</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-dark-800 text-dark-300">
+                  <tr>
+                    <th class="px-4 py-3 text-left">User ID</th>
+                    <th class="px-4 py-3 text-left">Username</th>
+                    <th class="px-4 py-3 text-left">Gender/Age</th>
+                    <th class="px-4 py-3 text-left">VIP</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody" class="divide-y divide-dark-800"></tbody>
+              </table>
+            </div>
+            <div class="p-4 border-t border-dark-800 flex items-center justify-between">
+              <span id="usersPagination" class="text-sm text-dark-400">Page 1</span>
+              <div class="flex gap-2">
+                <button onclick="loadUsers(currentUsersPage-1)" class="px-3 py-1 bg-dark-800 rounded text-sm hover:bg-dark-700">Previous</button>
+                <button onclick="loadUsers(currentUsersPage+1)" class="px-3 py-1 bg-dark-800 rounded text-sm hover:bg-dark-700">Next</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Bots Tab -->
+        <section id="tab-bots" class="tab-content hidden fade-in">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold">Bot Instances</h3>
+            <div class="flex gap-2">
+              <button onclick="showAddBotModal()" class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm text-white">➕ Add Bot</button>
+              <button onclick="refreshAllBots()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">🔄 Refresh All</button>
+            </div>
+          </div>
+          <div id="botsGrid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </section>
+
+        <!-- VIP Plans Tab -->
+        <section id="tab-vip" class="tab-content hidden fade-in">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold">VIP Plans</h3>
+            <button onclick="showAddPlanModal()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">+ Add Plan</button>
+          </div>
+          <div id="vipPlansGrid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </section>
+
+        <!-- Broadcast Tab -->
+        <section id="tab-broadcast" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <h3 class="font-semibold text-white mb-4">📢 Send Broadcast Message</h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Target Audience</label>
+                <select id="broadcastTarget" class="input-field">
+                  <option value="all">All Users</option>
+                  <option value="vip">VIP Users Only</option>
+                  <option value="non-vip">Non-VIP Users</option>
+                  <option value="active">Active Users (Last 7 days)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Message</label>
+                <textarea id="broadcastMessage" rows="4" class="input-field" placeholder="Enter your message... (supports Markdown)"></textarea>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Image (Optional)</label>
+                <input type="file" id="broadcastImage" accept="image/*" class="input-field">
+              </div>
+              <button onclick="sendBroadcast()" class="btn-primary px-6 py-2.5 rounded-lg text-white">Send Broadcast</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Lock Chat Tab -->
+        <section id="tab-lockchat" class="tab-content hidden fade-in">
+          <div class="grid md:grid-cols-2 gap-4 mb-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-2">🔒 Active Locks</h3>
+              <p class="text-sm text-dark-400 mb-4">Currently active chat locks</p>
+              <div id="activeLocksCount" class="text-3xl font-bold text-primary-400">-</div>
+              <button onclick="loadLockData()" class="mt-3 text-sm text-primary-400 hover:text-primary-300">🔄 Refresh</button>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-2">📊 Lock Statistics</h3>
+              <p class="text-sm text-dark-400 mb-4">Total locks created today</p>
+              <div id="lockStatsToday" class="text-3xl font-bold text-green-400">-</div>
+            </div>
+          </div>
+          
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">🔓 Active Locks List</h3>
+              <div id="activeLocksTable" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-dark-800">
+                    <tr>
+                      <th class="px-3 py-2 text-left">Chat ID</th>
+                      <th class="px-3 py-2 text-left">User ID</th>
+                      <th class="px-3 py-2 text-left">TTL</th>
+                      <th class="px-3 py-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="activeLocksBody" class="divide-y divide-dark-800"></tbody>
+                </table>
+              </div>
+              <p id="noActiveLocks" class="text-dark-400 text-sm hidden">No active locks</p>
+            </div>
+            
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">💰 Grant Lock Credits</h3>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">User Telegram ID</label>
+                  <input type="text" id="lockCreditUserId" class="input-field" placeholder="Enter Telegram ID">
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Minutes to Grant</label>
+                  <select id="lockCreditMinutes" class="input-field">
+                    <option value="5">5 Minutes</option>
+                    <option value="10">10 Minutes</option>
+                    <option value="15">15 Minutes</option>
+                    <option value="30">30 Minutes</option>
+                    <option value="60">60 Minutes</option>
+                  </select>
+                </div>
+                <button onclick="grantLockCredits()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white w-full">💰 Grant Credits</button>
+              </div>
+              
+              <div class="mt-6 pt-4 border-t border-dark-800">
+                <h4 class="font-medium text-white mb-3">🔍 Check User Credits</h4>
+                <div class="flex gap-2">
+                  <input type="text" id="checkCreditUserId" class="input-field flex-1" placeholder="Telegram ID">
+                  <button onclick="checkUserCredits()" class="btn-secondary px-4 py-2 rounded-lg text-sm">Check</button>
+                </div>
+                <div id="userCreditsResult" class="mt-3 text-sm text-dark-400"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mt-4 bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <h3 class="font-semibold text-white mb-4">📜 Recent Lock History</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-dark-800">
+                  <tr>
+                    <th class="px-3 py-2 text-left">ID</th>
+                    <th class="px-3 py-2 text-left">Chat ID</th>
+                    <th class="px-3 py-2 text-left">User ID</th>
+                    <th class="px-3 py-2 text-left">Duration</th>
+                    <th class="px-3 py-2 text-left">Stars Paid</th>
+                    <th class="px-3 py-2 text-left">Created</th>
+                    <th class="px-3 py-2 text-left">Expires</th>
+                  </tr>
+                </thead>
+                <tbody id="lockHistoryBody" class="divide-y divide-dark-800"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Messages Tab -->
+        <section id="tab-messages" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800">
+            <div class="p-4 border-b border-dark-800">
+              <h3 class="font-semibold text-white">💬 Bot Messages Configuration</h3>
+              <p class="text-sm text-dark-400 mt-1">Edit all bot messages including prompts, notifications, and system messages</p>
+            </div>
+            <div id="messagesContainer" class="divide-y divide-dark-800 max-h-[600px] overflow-y-auto"></div>
+            <div class="p-4 border-t border-dark-800">
+              <button onclick="saveAllMessages()" class="btn-primary px-6 py-2.5 rounded-lg text-white">💾 Save All Changes</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Config Tab -->
+        <section id="tab-config" class="tab-content hidden fade-in">
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">⚙️ Feature Toggles</h3>
+              <div id="configToggles" class="space-y-3"></div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">📊 Limits & Settings</h3>
+              <div id="configSettings" class="space-y-3"></div>
+            </div>
+          </div>
+          
+          <div class="grid md:grid-cols-2 gap-4 mt-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">📢 Required Channels (Promotion)</h3>
+              <p class="text-sm text-dark-400 mb-4">Users must join these channels to use the bot</p>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-sm text-dark-300">Enable Channel Check</span>
+                  <label class="toggle">
+                    <input type="checkbox" id="enableChannelCheck" onchange="updateConfig('required_channel_enabled', this.checked)">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Channel 1</label>
+                  <input type="text" id="requiredChannel1" class="input-field" placeholder="@channel1 or -100123456789">
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Channel 2 (Optional)</label>
+                  <input type="text" id="requiredChannel2" class="input-field" placeholder="@channel2 or -100123456789">
+                </div>
+                <button onclick="saveChannelConfig()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white w-full">💾 Save Channel Settings</button>
+              </div>
+            </div>
+            
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">🔗 Channel Status</h3>
+              <p class="text-sm text-dark-400 mb-4">Configured required channels</p>
+              <div id="channelList" class="space-y-2 text-sm"></div>
+              <div class="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                <p class="text-yellow-400 text-xs">⚠️ Make sure the bot is an admin in these channels to verify membership</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Export Tab -->
+        <section id="tab-export" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <h3 class="font-semibold text-white mb-4">📤 Export Data</h3>
+            <div class="grid md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Table</label>
+                <select id="exportTable" class="input-field">
+                  <option value="users">Users</option>
+                  <option value="vip_subscriptions">VIP Subscriptions</option>
+                  <option value="transactions">Transactions</option>
+                  <option value="chat_ratings">Chat Ratings</option>
+                  <option value="referrals">Referrals</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Format</label>
+                <select id="exportFormat" class="input-field">
+                  <option value="csv">CSV</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Limit</label>
+                <input type="number" id="exportLimit" placeholder="All" class="input-field">
+              </div>
+            </div>
+            <button onclick="exportData()" class="btn-primary px-6 py-2.5 rounded-lg text-white mt-4">📥 Download</button>
+          </div>
+        </section>
+
+        <!-- Audit Tab -->
+        <section id="tab-audit" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800">
+            <div class="p-4 border-b border-dark-800 flex items-center justify-between">
+              <h3 class="font-semibold text-white">📝 Audit Logs</h3>
+              <select id="auditFilter" onchange="loadAuditLogs()" class="input-field w-auto">
+                <option value="">All</option>
+                <option value="auth">Auth</option>
+                <option value="user">User</option>
+                <option value="config">Config</option>
+                <option value="broadcast">Broadcast</option>
+              </select>
+            </div>
+            <div id="auditLogsContainer" class="divide-y divide-dark-800 max-h-[500px] overflow-y-auto"></div>
+          </div>
+        </section>
+
+        <!-- Maintenance Tab -->
+        <section id="tab-maintenance" class="tab-content hidden fade-in">
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="font-semibold text-white">🔧 Maintenance Mode</h3>
+                  <p class="text-sm text-dark-400 mt-1">Stop all bot operations</p>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance()">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-4">
+                <p class="text-yellow-400 text-sm">⚠️ Users will receive maintenance message when enabled</p>
+              </div>
+              <div class="mb-3">
+                <label class="block text-sm text-dark-300 mb-2">Maintenance Message</label>
+                <textarea id="maintenanceMessage" rows="3" class="input-field" placeholder="Custom maintenance message...">🔧 Bot is under maintenance. Please try again later.</textarea>
+              </div>
+              <button onclick="saveMaintenanceMessage()" class="bg-dark-800 hover:bg-dark-700 px-4 py-2 rounded-lg text-sm w-full">💾 Save Message</button>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold text-white mb-4">🛠️ System Actions</h3>
+              <div class="space-y-2">
+                <button onclick="clearAllQueues()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2.5 rounded-lg text-sm text-left flex items-center gap-2">🗑️ Clear All Queues<span class="ml-auto text-dark-500 text-xs">Remove waiting users</span></button>
+                <button onclick="disconnectAllChats()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2.5 rounded-lg text-sm text-left flex items-center gap-2">❌ Disconnect All Chats<span class="ml-auto text-dark-500 text-xs">End active chats</span></button>
+                <button onclick="refreshAllBots()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2.5 rounded-lg text-sm text-left flex items-center gap-2">🔄 Restart All Bots<span class="ml-auto text-dark-500 text-xs">Refresh connections</span></button>
+                <button onclick="clearCache()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2.5 rounded-lg text-sm text-left flex items-center gap-2">🧹 Clear Cache<span class="ml-auto text-dark-500 text-xs">Reset cached data</span></button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- User Action Modal -->
+  <div id="userModal" class="modal">
+    <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-md m-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-white">User Actions</h3>
+        <button onclick="closeModal('userModal')" class="text-dark-400 hover:text-white">&times;</button>
+      </div>
+      <div class="space-y-3">
+        <div class="text-sm text-dark-400">User ID: <span id="modalUserId" class="text-white font-mono"></span></div>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="giveVip()" class="btn-success px-4 py-2 rounded-lg text-sm text-white">⭐ Give VIP</button>
+          <button onclick="removeVip()" class="btn-warning px-4 py-2 rounded-lg text-sm text-white">❌ Remove VIP</button>
+          <button onclick="banUser()" class="btn-danger px-4 py-2 rounded-lg text-sm text-white">🚫 Ban User</button>
+          <button onclick="unbanUser()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">✅ Unban</button>
+        </div>
+        <div class="pt-3 border-t border-dark-800">
+          <label class="block text-sm text-dark-300 mb-2">Give VIP Duration</label>
+          <select id="vipDuration" class="input-field mb-3">
+            <option value="1">1 Day</option>
+            <option value="7">7 Days</option>
+            <option value="30" selected>30 Days</option>
+            <option value="90">90 Days</option>
+            <option value="365">1 Year</option>
+            <option value="lifetime">Lifetime</option>
+          </select>
+          <button onclick="sendMessageToUser()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2 rounded-lg text-sm">📨 Send Message</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIP Plan Modal -->
+  <div id="planModal" class="modal">
+    <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-md m-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 id="planModalTitle" class="font-semibold text-white">Add VIP Plan</h3>
+        <button onclick="closeModal('planModal')" class="text-dark-400 hover:text-white">&times;</button>
+      </div>
+      <div class="space-y-3">
+        <input type="hidden" id="planId">
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Plan Name</label>
+          <input type="text" id="planName" class="input-field" placeholder="e.g. Monthly VIP">
+        </div>
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Duration (Days)</label>
+          <input type="number" id="planDuration" class="input-field" placeholder="30">
+        </div>
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Price (Stars)</label>
+          <input type="number" id="planPrice" class="input-field" placeholder="100">
+        </div>
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Features (one per line)</label>
+          <textarea id="planFeatures" rows="3" class="input-field" placeholder="Gender filter&#10;Priority matching&#10;No ads"></textarea>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="checkbox" id="planActive" checked>
+          <label class="text-sm text-dark-300">Active</label>
+        </div>
+        <button onclick="savePlan()" class="btn-primary w-full py-2.5 rounded-lg text-white">Save Plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Bot Modal -->
+  <div id="addBotModal" class="modal">
+    <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-md m-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-white">➕ Add New Bot</h3>
+        <button onclick="closeModal('addBotModal')" class="text-dark-400 hover:text-white text-xl">&times;</button>
+      </div>
+      <div class="space-y-4">
+        <div class="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+          <p class="text-blue-400 text-sm">💡 Create a bot via <a href="https://t.me/BotFather" target="_blank" class="underline">@BotFather</a> and paste the token below</p>
+        </div>
+        <div>
+          <label class="block text-sm text-dark-300 mb-2">Bot Token</label>
+          <input type="text" id="newBotToken" class="input-field font-mono text-sm" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+        </div>
+        <button onclick="addNewBot()" class="btn-primary w-full py-2.5 rounded-lg text-white">Add Bot</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+  <script>
+    let authToken = localStorage.getItem('adminToken');
+    let currentUsersPage = 1;
+    let selectedUserId = null;
+    let analyticsChart = null;
+    let pollingInterval = null;
+    let botMessages = {};
+
+    // Toast notification
+    function toast(msg, type = 'info') {
+      const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500', warning: 'bg-yellow-500' };
+      const div = document.createElement('div');
+      div.className = `${colors[type]} text-white px-4 py-2 rounded-lg shadow-lg text-sm fade-in`;
+      div.textContent = msg;
+      document.getElementById('toastContainer').appendChild(div);
+      setTimeout(() => div.remove(), 4000);
+    }
+
+    // API helper
+    async function api(endpoint, options = {}) {
+      try {
+        const res = await fetch(`/api/admin${endpoint}`, {
+          ...options,
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Token': authToken, ...options.headers },
+          body: options.body ? JSON.stringify(options.body) : undefined
+        });
+        const data = await res.json();
+        if (res.status === 401) { logout(); throw new Error('Session expired'); }
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      } catch (err) {
+        toast(err.message, 'error');
+        throw err;
+      }
+    }
+
+    // Login functions
+    function switchLoginTab(tab) {
+      const telegramTab = document.getElementById('tabTelegram');
+      const otpTab = document.getElementById('tabOtp');
+      document.getElementById('loginError').classList.add('hidden');
+      
+      if (tab === 'telegram') {
+        telegramTab.className = 'flex-1 py-2 px-3 rounded-md text-sm font-medium bg-primary-600 text-white';
+        otpTab.className = 'flex-1 py-2 px-3 rounded-md text-sm font-medium text-dark-400 hover:text-white';
+        document.getElementById('telegramLoginSection').classList.remove('hidden');
+        document.getElementById('otpLoginSection').classList.add('hidden');
+      } else {
+        otpTab.className = 'flex-1 py-2 px-3 rounded-md text-sm font-medium bg-primary-600 text-white';
+        telegramTab.className = 'flex-1 py-2 px-3 rounded-md text-sm font-medium text-dark-400 hover:text-white';
+        document.getElementById('otpLoginSection').classList.remove('hidden');
+        document.getElementById('telegramLoginSection').classList.add('hidden');
+      }
+    }
+
+    async function startTelegramLogin() {
+      try {
+        const res = await fetch('/api/admin/telegram-login/init', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('telegramWidgetContainer').classList.add('hidden');
+          document.getElementById('telegramWaiting').classList.remove('hidden');
+          document.getElementById('verifyCode').textContent = `/verify ${data.verifyCode}`;
+          startVerificationPolling(data.pendingToken);
+        } else {
+          showLoginError(data.error || 'Failed to initialize');
+        }
+      } catch (err) { showLoginError('Connection error'); }
+    }
+
+    function startVerificationPolling(token) {
+      let attempts = 0;
+      pollingInterval = setInterval(async () => {
+        attempts++;
+        if (attempts > 60) { clearInterval(pollingInterval); resetTelegramLogin(); showLoginError('Session expired'); return; }
+        document.getElementById('tokenExpiry').textContent = `Expires in ${300 - attempts * 5}s`;
+        try {
+          const res = await fetch(`/api/admin/telegram-login/check/${token}`);
+          const data = await res.json();
+          if (data.verified && data.token) {
+            clearInterval(pollingInterval);
+            authToken = data.token;
+            localStorage.setItem('adminToken', authToken);
+            if (data.username) document.getElementById('adminName').textContent = data.username;
+            showDashboard();
+          } else if (data.expired || data.error) {
+            clearInterval(pollingInterval);
+            resetTelegramLogin();
+            showLoginError(data.error || 'Session expired');
+          }
+        } catch (err) {}
+      }, 5000);
+    }
+
+    function resetTelegramLogin() {
+      if (pollingInterval) clearInterval(pollingInterval);
+      document.getElementById('telegramWidgetContainer').classList.remove('hidden');
+      document.getElementById('telegramWaiting').classList.add('hidden');
+    }
+
+    let otpTelegramId = null;
+    async function requestOtp() {
+      const telegramId = document.getElementById('otpTelegramId').value.trim();
+      if (!telegramId) { showLoginError('Enter Telegram ID'); return; }
+      try {
+        const res = await fetch('/api/admin/otp/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegramId }) });
+        const data = await res.json();
+        if (data.success) {
+          otpTelegramId = telegramId;
+          document.getElementById('otpStep1').classList.add('hidden');
+          document.getElementById('otpStep2').classList.remove('hidden');
+          document.getElementById('loginError').classList.add('hidden');
+          toast('OTP sent!', 'success');
+        } else { showLoginError(data.error); }
+      } catch (err) { showLoginError('Connection error'); }
+    }
+
+    async function verifyOtp() {
+      const otp = document.getElementById('otpCode').value.trim();
+      if (!otp || otp.length !== 6) { showLoginError('Enter 6-digit OTP'); return; }
+      try {
+        const res = await fetch('/api/admin/otp/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegramId: otpTelegramId, otp }) });
+        const data = await res.json();
+        if (data.success && data.token) {
+          authToken = data.token;
+          localStorage.setItem('adminToken', authToken);
+          showDashboard();
+        } else { showLoginError(data.error || 'Invalid OTP'); }
+      } catch (err) { showLoginError('Connection error'); }
+    }
+
+    function resetOtpLogin() {
+      document.getElementById('otpTelegramId').value = '';
+      document.getElementById('otpCode').value = '';
+      document.getElementById('otpStep1').classList.remove('hidden');
+      document.getElementById('otpStep2').classList.add('hidden');
+      document.getElementById('loginError').classList.add('hidden');
+    }
+
+    function showLoginError(msg) {
+      const el = document.getElementById('loginError');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function logout() {
+      localStorage.removeItem('adminToken');
+      authToken = null;
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('loginScreen').classList.remove('hidden');
+    }
+
+    // Dashboard
+    async function showDashboard() {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      loadStats();
+      loadConfig();
+      switchTab('overview');
+      setInterval(loadStats, 30000);
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('-translate-x-full');
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('bg-primary-600', 'text-white'));
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+      document.querySelector(`[data-tab="${tab}"]`)?.classList.add('bg-primary-600', 'text-white');
+      
+      const titles = { overview: 'Overview', analytics: 'Analytics', users: 'User Management', bots: 'Bot Instances', vip: 'VIP Plans', lockchat: 'Lock Chat', broadcast: 'Broadcast', messages: 'Bot Messages', config: 'Configuration', export: 'Export Data', audit: 'Audit Logs', maintenance: 'Maintenance' };
+      document.getElementById('pageTitle').textContent = titles[tab] || tab;
+      
+      if (tab === 'users') loadUsers();
+      if (tab === 'bots') loadBots();
+      if (tab === 'vip') loadVipPlans();
+      if (tab === 'lockchat') loadLockData();
+      if (tab === 'messages') loadMessages();
+      if (tab === 'config') loadConfig();
+      if (tab === 'analytics') initAnalytics();
+      if (tab === 'audit') loadAuditLogs();
+      if (tab === 'maintenance') loadMaintenanceStatus();
+    }
+
+    // Stats
+    async function loadStats() {
+      try {
+        const stats = await api('/stats');
+        document.getElementById('stat-totalUsers').textContent = stats.totalUsers?.toLocaleString() || '0';
+        document.getElementById('stat-onlineUsers').textContent = stats.onlineUsers || '0';
+        document.getElementById('stat-vipActive').textContent = stats.vipActive || '0';
+        document.getElementById('stat-todayUsers').textContent = stats.todayUsers || '0';
+        document.getElementById('stat-activeChats').textContent = stats.activeChats || '0';
+        document.getElementById('stat-queueSize').textContent = stats.queueSize || '0';
+        document.getElementById('stat-bannedUsers').textContent = stats.bannedUsers || '0';
+      } catch (err) {}
+    }
+
+    // Users
+    async function loadUsers(page = 1) {
+      currentUsersPage = Math.max(1, page);
+      const filter = document.getElementById('userFilter').value;
+      const search = document.getElementById('userSearch').value;
+      try {
+        const data = await api(`/users?page=${currentUsersPage}&limit=20&filter=${filter}&search=${encodeURIComponent(search)}`);
+        const tbody = document.getElementById('usersTableBody');
+        tbody.innerHTML = data.users.map(u => `
+          <tr class="table-row">
+            <td class="px-4 py-3 font-mono text-xs">${u.userId}</td>
+            <td class="px-4 py-3">${u.username || '-'}</td>
+            <td class="px-4 py-3">${u.gender || '-'} / ${u.age || '-'}</td>
+            <td class="px-4 py-3">${u.isVip ? '<span class="text-yellow-400">⭐ VIP</span>' : '-'}</td>
+            <td class="px-4 py-3">${u.banned ? '<span class="text-red-400">Banned</span>' : '<span class="text-green-400">Active</span>'}</td>
+            <td class="px-4 py-3"><button onclick="openUserModal('${u.userId}')" class="text-primary-400 hover:underline text-sm">Actions</button></td>
+          </tr>
+        `).join('');
+        document.getElementById('usersPagination').textContent = `Page ${currentUsersPage} of ${Math.ceil(data.total / 20)}`;
+      } catch (err) {}
+    }
+
+    function searchUsers() { loadUsers(1); }
+
+    function openUserModal(userId) {
+      selectedUserId = userId;
+      document.getElementById('modalUserId').textContent = userId;
+      document.getElementById('userModal').classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    async function giveVip() {
+      const duration = document.getElementById('vipDuration').value;
+      try {
+        await api('/users/vip', { method: 'POST', body: { userId: selectedUserId, duration } });
+        toast('VIP granted!', 'success');
+        closeModal('userModal');
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function removeVip() {
+      try {
+        await api('/users/vip/remove', { method: 'POST', body: { userId: selectedUserId } });
+        toast('VIP removed', 'success');
+        closeModal('userModal');
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function banUser() {
+      if (!confirm('Ban this user?')) return;
+      try {
+        await api('/users/ban', { method: 'POST', body: { userId: selectedUserId } });
+        toast('User banned', 'success');
+        closeModal('userModal');
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function unbanUser() {
+      try {
+        await api('/users/unban', { method: 'POST', body: { userId: selectedUserId } });
+        toast('User unbanned', 'success');
+        closeModal('userModal');
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function sendMessageToUser() {
+      const msg = prompt('Enter message to send:');
+      if (!msg) return;
+      try {
+        await api('/users/message', { method: 'POST', body: { userId: selectedUserId, message: msg } });
+        toast('Message sent!', 'success');
+      } catch (err) {}
+    }
+
+    // Bots
+    async function loadBots() {
+      try {
+        const data = await api('/bots');
+        const grid = document.getElementById('botsGrid');
+        
+        if (!data.bots || data.bots.length === 0) {
+          grid.innerHTML = `
+            <div class="col-span-3 text-center py-8">
+              <p class="text-dark-400 mb-4">No bots configured</p>
+              <button onclick="showAddBotModal()" class="btn-primary px-6 py-2 rounded-lg text-white">➕ Add Your First Bot</button>
+            </div>
+          `;
+          return;
+        }
+        
+        grid.innerHTML = data.bots.map((bot, i) => `
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-semibold text-white">${bot.username || `Bot ${i}`}</span>
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full ${bot.status === 'running' && !bot.disabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'}" title="${bot.status === 'running' && !bot.disabled ? 'Running' : 'Stopped'}"></span>
+                <span class="text-xs ${bot.status === 'running' && !bot.disabled ? 'text-green-400' : 'text-red-400'}">${bot.status === 'running' && !bot.disabled ? 'Live' : 'Offline'}</span>
+              </div>
+            </div>
+            <div class="text-sm text-dark-400 space-y-1 mb-3">
+              <div class="flex justify-between"><span>ID:</span><span class="text-white">${bot.id}</span></div>
+              <div class="flex justify-between"><span>Token:</span><span class="font-mono text-xs text-dark-500">${bot.token}</span></div>
+              <div class="flex justify-between"><span>Status:</span><span class="${bot.disabled ? 'text-yellow-400' : 'text-green-400'}">${bot.disabled ? 'Disabled' : 'Enabled'}</span></div>
+            </div>
+            <div class="flex gap-2">
+              ${bot.disabled ? `
+                <button onclick="startBot(${i})" class="flex-1 bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg text-sm text-white">▶️ Start</button>
+              ` : `
+                <button onclick="stopBot(${i})" class="flex-1 bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg text-sm text-white">⏹️ Stop</button>
+              `}
+              <button onclick="restartBot(${i})" class="flex-1 bg-dark-700 hover:bg-dark-600 px-3 py-1.5 rounded-lg text-sm">🔄 Restart</button>
+              <button onclick="removeBot(${i})" class="bg-dark-800 hover:bg-red-500/20 text-red-400 px-3 py-1.5 rounded-lg text-sm" title="Remove">🗑️</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('botsGrid').innerHTML = '<div class="text-dark-500 col-span-3 text-center py-8">Failed to load bots</div>';
+      }
+    }
+
+    function showAddBotModal() {
+      document.getElementById('newBotToken').value = '';
+      document.getElementById('addBotModal').classList.add('active');
+    }
+
+    async function addNewBot() {
+      const token = document.getElementById('newBotToken').value.trim();
+      if (!token) { toast('Enter a bot token', 'error'); return; }
+      
+      try {
+        const data = await api('/bots/add', { method: 'POST', body: { token } });
+        toast(data.message || 'Bot added!', 'success');
+        closeModal('addBotModal');
+        
+        // Offer to restart bots
+        if (confirm('Bot added. Restart all bots to activate?')) {
+          await refreshAllBots();
+        }
+        loadBots();
+      } catch (err) {
+        toast(err.message || 'Failed to add bot', 'error');
+      }
+    }
+
+    async function refreshAllBots() {
+      toast('Refreshing all bots... This may take 15-20 seconds', 'info');
+      try {
+        const data = await api('/bots/refresh', { method: 'POST' });
+        toast(data.message || 'Bots refreshed!', 'success');
+        setTimeout(() => loadBots(), 2000);
+      } catch (err) {
+        toast('Refresh failed: ' + (err.message || 'Unknown error'), 'error');
+      }
+    }
+
+    async function startBot(index) {
+      toast(`Starting bot ${index}...`, 'info');
+      try {
+        await api(`/bots/${index}/start`, { method: 'POST' });
+        toast(`Bot ${index} started!`, 'success');
+        setTimeout(() => loadBots(), 2000);
+      } catch (err) {
+        toast('Start failed', 'error');
+      }
+    }
+
+    async function stopBot(index) {
+      if (!confirm(`Stop bot ${index}?`)) return;
+      toast(`Stopping bot ${index}...`, 'info');
+      try {
+        await api(`/bots/${index}/stop`, { method: 'POST' });
+        toast(`Bot ${index} stopped!`, 'success');
+        setTimeout(() => loadBots(), 2000);
+      } catch (err) {
+        toast('Stop failed', 'error');
+      }
+    }
+
+    async function restartBot(index) {
+      toast(`Restarting bot ${index}...`, 'info');
+      try {
+        await api(`/bots/${index}/restart`, { method: 'POST' });
+        toast(`Bot ${index} restarted!`, 'success');
+        setTimeout(() => loadBots(), 2000);
+      } catch (err) {
+        toast('Restart failed', 'error');
+      }
+    }
+
+    async function removeBot(index) {
+      if (!confirm(`Remove bot ${index}? This cannot be undone.`)) return;
+      try {
+        await api(`/bots/${index}/remove`, { method: 'POST' });
+        toast('Bot removed. Restart to apply.', 'success');
+        loadBots();
+      } catch (err) {
+        toast('Remove failed', 'error');
+      }
+    }
+
+    // VIP Plans
+    async function loadVipPlans() {
+      try {
+        const data = await api('/vip-plans');
+        const grid = document.getElementById('vipPlansGrid');
+        grid.innerHTML = data.plans.map(plan => `
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-semibold text-yellow-400">${plan.name}</span>
+              <span class="text-xs px-2 py-1 rounded ${plan.active ? 'bg-green-500/20 text-green-400' : 'bg-dark-700 text-dark-400'}">${plan.active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div class="text-2xl font-bold mb-1">${plan.price} ⭐</div>
+            <div class="text-sm text-dark-400 mb-2">${plan.duration} days</div>
+            ${plan.features && plan.features.length > 0 ? `
+              <div class="text-xs text-dark-500 mb-3">
+                ${plan.features.slice(0, 3).map(f => `<span class="inline-block mr-2">• ${f}</span>`).join('')}
+              </div>
+            ` : ''}
+            <div class="flex gap-2">
+              <button onclick="editPlan('${plan.id}')" class="flex-1 bg-primary-600 hover:bg-primary-500 px-3 py-1.5 rounded-lg text-sm text-white">✏️ Edit</button>
+              <button onclick="deletePlan('${plan.id}')" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 rounded-lg text-sm">🗑️</button>
+            </div>
+          </div>
+        `).join('') || '<div class="text-dark-500 col-span-3 text-center py-8">No VIP plans configured</div>';
+      } catch (err) {
+        console.error('Failed to load VIP plans:', err);
+        document.getElementById('vipPlansGrid').innerHTML = '<div class="text-dark-500">Failed to load plans</div>';
+      }
+    }
+
+    function showAddPlanModal() {
+      document.getElementById('planModalTitle').textContent = 'Add VIP Plan';
+      document.getElementById('planId').value = '';
+      document.getElementById('planName').value = '';
+      document.getElementById('planDuration').value = '';
+      document.getElementById('planPrice').value = '';
+      document.getElementById('planFeatures').value = '';
+      document.getElementById('planActive').checked = true;
+      document.getElementById('planModal').classList.add('active');
+    }
+
+    async function editPlan(id) {
+      try {
+        const data = await api(`/vip-plans/${id}`);
+        document.getElementById('planModalTitle').textContent = 'Edit VIP Plan';
+        document.getElementById('planId').value = id;
+        document.getElementById('planName').value = data.name;
+        document.getElementById('planDuration').value = data.duration;
+        document.getElementById('planPrice').value = data.price;
+        document.getElementById('planFeatures').value = (data.features || []).join('\n');
+        document.getElementById('planActive').checked = data.active;
+        document.getElementById('planModal').classList.add('active');
+      } catch (err) {}
+    }
+
+    async function savePlan() {
+      const id = document.getElementById('planId').value;
+      const body = {
+        name: document.getElementById('planName').value,
+        duration: parseInt(document.getElementById('planDuration').value),
+        price: parseInt(document.getElementById('planPrice').value),
+        features: document.getElementById('planFeatures').value.split('\n').filter(f => f.trim()),
+        active: document.getElementById('planActive').checked
+      };
+      try {
+        if (id) {
+          await api(`/vip-plans/${id}`, { method: 'PUT', body });
+        } else {
+          await api('/vip-plans', { method: 'POST', body });
+        }
+        toast('Plan saved!', 'success');
+        closeModal('planModal');
+        loadVipPlans();
+      } catch (err) {}
+    }
+
+    async function deletePlan(id) {
+      if (!confirm('Delete this plan?')) return;
+      try {
+        await api(`/vip-plans/${id}`, { method: 'DELETE' });
+        toast('Plan deleted', 'success');
+        loadVipPlans();
+      } catch (err) {}
+    }
+
+    // Broadcast
+    async function sendBroadcast() {
+      const target = document.getElementById('broadcastTarget').value;
+      const message = document.getElementById('broadcastMessage').value;
+      if (!message.trim()) { toast('Enter a message', 'error'); return; }
+      
+      const formData = new FormData();
+      formData.append('target', target);
+      formData.append('message', message);
+      const imageFile = document.getElementById('broadcastImage').files[0];
+      if (imageFile) formData.append('media', imageFile);
+      
+      try {
+        const res = await fetch('/api/admin/broadcast', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': authToken },
+          body: formData
+        });
+        const data = await res.json();
+        toast(`Broadcast sent to ${data.sent || 0} users`, 'success');
+      } catch (err) { toast('Broadcast failed', 'error'); }
+    }
+
+    // Lock Chat Functions
+    async function loadLockData() {
+      try {
+        const data = await api('/lock-chat/stats');
+        document.getElementById('activeLocksCount').textContent = data.activeLocks || 0;
+        document.getElementById('lockStatsToday').textContent = data.locksToday || 0;
+        
+        // Populate active locks table
+        const tbody = document.getElementById('activeLocksBody');
+        const noLocks = document.getElementById('noActiveLocks');
+        
+        if (data.activeLocksDetail && data.activeLocksDetail.length > 0) {
+          noLocks.classList.add('hidden');
+          tbody.innerHTML = data.activeLocksDetail.map(lock => `
+            <tr class="hover:bg-dark-800/50">
+              <td class="px-3 py-2 font-mono text-xs">${lock.chatId}</td>
+              <td class="px-3 py-2 font-mono text-xs">${lock.userId}</td>
+              <td class="px-3 py-2"><span class="text-green-400">${formatTTL(lock.ttl)}</span></td>
+              <td class="px-3 py-2">
+                <button onclick="removeLock('${lock.chatId}', '${lock.userId}')" class="text-red-400 hover:text-red-300 text-xs">🗑️ Remove</button>
+              </td>
+            </tr>
+          `).join('');
+        } else {
+          tbody.innerHTML = '';
+          noLocks.classList.remove('hidden');
+        }
+        
+        // Populate lock history
+        if (data.recentHistory) {
+          const historyBody = document.getElementById('lockHistoryBody');
+          historyBody.innerHTML = data.recentHistory.map(h => `
+            <tr class="hover:bg-dark-800/50">
+              <td class="px-3 py-2 font-mono text-xs">${h.id}</td>
+              <td class="px-3 py-2 font-mono text-xs">${h.chatId}</td>
+              <td class="px-3 py-2 font-mono text-xs">${h.userId}</td>
+              <td class="px-3 py-2">${h.durationMinutes} min</td>
+              <td class="px-3 py-2">${h.starsPaid || 'Free'}</td>
+              <td class="px-3 py-2 text-xs">${new Date(h.createdAt).toLocaleString()}</td>
+              <td class="px-3 py-2 text-xs">${new Date(h.expiresAt).toLocaleString()}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load lock data:', err);
+      }
+    }
+
+    function formatTTL(seconds) {
+      if (seconds <= 0) return 'Expired';
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}m ${secs}s`;
+    }
+
+    async function grantLockCredits() {
+      const userId = document.getElementById('lockCreditUserId').value.trim();
+      const minutes = parseInt(document.getElementById('lockCreditMinutes').value);
+      
+      if (!userId) { toast('Enter a user ID', 'error'); return; }
+      
+      try {
+        const data = await api('/lock-chat/grant-credits', {
+          method: 'POST',
+          body: { telegramId: userId, minutes }
+        });
+        toast(`Granted ${minutes} lock minutes to user ${userId}`, 'success');
+        document.getElementById('lockCreditUserId').value = '';
+      } catch (err) {
+        toast('Failed to grant credits', 'error');
+      }
+    }
+
+    async function checkUserCredits() {
+      const userId = document.getElementById('checkCreditUserId').value.trim();
+      if (!userId) { toast('Enter a user ID', 'error'); return; }
+      
+      try {
+        const data = await api(`/lock-chat/credits/${userId}`);
+        const result = document.getElementById('userCreditsResult');
+        result.innerHTML = `<span class="text-white">User ${userId}:</span> <span class="text-green-400 font-bold">${data.totalMinutes || 0}</span> minutes available`;
+      } catch (err) {
+        document.getElementById('userCreditsResult').innerHTML = '<span class="text-red-400">User not found or error</span>';
+      }
+    }
+
+    async function removeLock(chatId, userId) {
+      if (!confirm(`Remove lock for chat ${chatId} by user ${userId}?`)) return;
+      try {
+        await api('/lock-chat/remove', { method: 'POST', body: { chatId, userId } });
+        toast('Lock removed', 'success');
+        loadLockData();
+      } catch (err) {
+        toast('Failed to remove lock', 'error');
+      }
+    }
+
+    // Messages
+    async function loadMessages() {
+      try {
+        const data = await api('/messages');
+        botMessages = data;
+        const container = document.getElementById('messagesContainer');
+        
+        const messageGroups = {
+          'Core Messages': ['msg_welcome', 'msg_searching', 'msg_connected', 'msg_partner_left', 'msg_chat_ended', 'msg_chat_ended_next'],
+          'Status Messages': ['msg_not_paired', 'msg_in_dialogue', 'msg_already_searching', 'msg_already_paired', 'msg_banned_user'],
+          'VIP Messages': ['msg_vip_welcome', 'msg_vip_expired', 'msg_vip_benefits', 'msg_gender_filter_vip'],
+          'Rules & System': ['msg_rules', 'msg_maintenance', 'msg_rate_limited', 'msg_error', 'msg_channel_join'],
+          'Profile Messages': ['msg_gender_prompt', 'msg_age_prompt', 'msg_profile_complete', 'msg_profile_updated'],
+          'Chat Messages': ['msg_partner_typing', 'msg_partner_media', 'msg_report_received', 'msg_rating_prompt'],
+          'Notification Messages': ['msg_referral_bonus', 'msg_daily_bonus', 'msg_achievement_unlocked']
+        };
+        
+        let html = '';
+        for (const [group, keys] of Object.entries(messageGroups)) {
+          html += `<div class="p-4 border-b border-dark-800">
+            <h4 class="font-medium text-white mb-3">${group}</h4>
+            <div class="space-y-3">`;
+          for (const key of keys) {
+            const value = data[key] || '';
+            const label = key.replace('msg_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            html += `<div>
+              <label class="block text-xs text-dark-400 mb-1">${label}</label>
+              <textarea id="msg-${key}" rows="2" class="input-field text-sm" placeholder="${label}">${escapeHtml(value)}</textarea>
+            </div>`;
+          }
+          html += '</div></div>';
+        }
+        container.innerHTML = html;
+      } catch (err) {}
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function saveAllMessages() {
+      const messages = {};
+      document.querySelectorAll('[id^="msg-"]').forEach(el => {
+        const key = el.id.replace('msg-', '');
+        messages[key] = el.value;
+      });
+      try {
+        await api('/messages', { method: 'POST', body: messages });
+        toast('Messages saved!', 'success');
+      } catch (err) {}
+    }
+
+    // Config
+    async function loadConfig() {
+      try {
+        const data = await api('/config');
+        const toggles = document.getElementById('configToggles');
+        const settings = document.getElementById('configSettings');
+        
+        const featureFlags = [
+          { key: 'ENABLE_VIP', label: 'VIP System' },
+          { key: 'ENABLE_REFERRALS', label: 'Referral System' },
+          { key: 'ENABLE_STARS_PAYMENTS', label: 'Stars Payments' },
+          { key: 'ENABLE_LOCK_CHAT', label: 'Lock Chat Feature' },
+          { key: 'ENABLE_CROSS_BOT_MATCHING', label: 'Cross-Bot Matching' },
+          { key: 'ENABLE_ADMIN_ALERTS', label: 'Admin Alerts' },
+          { key: 'ENABLE_AFFILIATE_SYSTEM', label: 'Affiliate System' },
+          { key: 'ENABLE_ABUSE_DETECTION', label: 'Abuse Detection' }
+        ];
+        
+        toggles.innerHTML = featureFlags.map(f => {
+          const isChecked = data[f.key] === true || data[f.key] === 'true';
+          return `
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-dark-300">${f.label}</span>
+              <label class="toggle">
+                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="updateConfig('${f.key}', this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          `;
+        }).join('');
+        
+        const limits = [
+          { key: 'lock_chat_5min_price', label: '5 Min Lock Price (⭐)', type: 'number' },
+          { key: 'lock_chat_10min_price', label: '10 Min Lock Price (⭐)', type: 'number' },
+          { key: 'lock_chat_15min_price', label: '15 Min Lock Price (⭐)', type: 'number' },
+          { key: 'referral_vip_days', label: 'Referral VIP Days', type: 'number' }
+        ];
+        
+        settings.innerHTML = limits.map(l => `
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-sm text-dark-300">${l.label}</span>
+            <input type="${l.type}" value="${data[l.key] || ''}" class="input-field w-24 text-center text-sm" onchange="updateConfig('${l.key}', this.value)">
+          </div>
+        `).join('');
+        
+        // Maintenance status
+        const maintenanceOn = data.maintenance_mode === true || data.maintenance_mode === 'true';
+        document.getElementById('maintenanceToggle').checked = maintenanceOn;
+        document.getElementById('maintenanceStatus').textContent = maintenanceOn ? 'On' : 'Off';
+        document.getElementById('maintenanceStatus').className = maintenanceOn ? 'text-yellow-400' : 'text-dark-400';
+        document.getElementById('maintenanceIndicator').classList.toggle('hidden', !maintenanceOn);
+        document.getElementById('maintenanceIndicator').classList.toggle('flex', maintenanceOn);
+        if (data.msg_maintenance) {
+          document.getElementById('maintenanceMessage').value = data.msg_maintenance;
+        }
+        
+        // Channel settings
+        document.getElementById('enableChannelCheck').checked = data.required_channel_enabled === true || data.required_channel_enabled === 'true';
+        if (data.required_channel_1) {
+          document.getElementById('requiredChannel1').value = data.required_channel_1;
+        }
+        if (data.required_channel_2) {
+          document.getElementById('requiredChannel2').value = data.required_channel_2;
+        }
+        
+        // Display channel list
+        const channelList = document.getElementById('channelList');
+        const channels = [data.required_channel_1, data.required_channel_2].filter(c => c && c.trim());
+        const channelEnabled = data.required_channel_enabled === true || data.required_channel_enabled === 'true';
+        
+        if (channels.length > 0) {
+          channelList.innerHTML = channels.map(ch => {
+            const cleaned = ch.trim();
+            const isUsername = cleaned.startsWith('@');
+            return `<div class="flex items-center gap-2 p-2 bg-dark-800 rounded">
+              <span class="text-primary-400">${isUsername ? '📢' : '🔗'}</span>
+              <span class="text-white">${cleaned}</span>
+              ${isUsername ? `<a href="https://t.me/${cleaned.slice(1)}" target="_blank" class="ml-auto text-xs text-primary-400 hover:text-primary-300">Open →</a>` : ''}
+            </div>`;
+          }).join('');
+          if (!channelEnabled) {
+            channelList.innerHTML += '<p class="text-yellow-400 text-xs mt-2">⚠️ Channel check is disabled</p>';
+          }
+        } else {
+          channelList.innerHTML = '<p class="text-dark-500">No required channels configured</p>';
+        }
+      } catch (err) {}
+    }
+
+    async function saveChannelConfig() {
+      const channel1 = document.getElementById('requiredChannel1').value.trim();
+      const channel2 = document.getElementById('requiredChannel2').value.trim();
+      
+      try {
+        await api('/config', { method: 'POST', body: { key: 'required_channel_1', value: channel1 } });
+        await api('/config', { method: 'POST', body: { key: 'required_channel_2', value: channel2 } });
+        toast('Channel settings saved!', 'success');
+        loadConfig();
+      } catch (err) {
+        toast('Failed to save channel settings', 'error');
+      }
+    }
+
+    async function updateConfig(key, value) {
+      try {
+        await api('/config', { method: 'POST', body: { key, value } });
+        toast('Config updated', 'success');
+      } catch (err) {
+        toast('Failed to update config', 'error');
+      }
+    }
+
+    // Maintenance
+    async function loadMaintenanceStatus() {
+      try {
+        const data = await api('/maintenance/status');
+        const enabled = data.enabled === true || data.enabled === 'true';
+        document.getElementById('maintenanceToggle').checked = enabled;
+        document.getElementById('maintenanceStatus').textContent = enabled ? 'On' : 'Off';
+        document.getElementById('maintenanceStatus').className = enabled ? 'text-yellow-400' : 'text-dark-400';
+        document.getElementById('maintenanceIndicator').classList.toggle('hidden', !enabled);
+        document.getElementById('maintenanceIndicator').classList.toggle('flex', enabled);
+        
+        // Load maintenance message from config
+        const config = await api('/config');
+        if (config.msg_maintenance) {
+          document.getElementById('maintenanceMessage').value = config.msg_maintenance;
+        }
+      } catch (err) {
+        console.error('Failed to load maintenance status:', err);
+      }
+    }
+
+    async function toggleMaintenance() {
+      const enabled = document.getElementById('maintenanceToggle').checked;
+      const message = document.getElementById('maintenanceMessage').value || '🔧 Bot is under maintenance. Please try again later.';
+      try {
+        await api('/maintenance', { method: 'POST', body: { enabled, message, notifyUsers: true } });
+        document.getElementById('maintenanceStatus').textContent = enabled ? 'On' : 'Off';
+        document.getElementById('maintenanceStatus').className = enabled ? 'text-yellow-400' : 'text-dark-400';
+        document.getElementById('maintenanceIndicator').classList.toggle('hidden', !enabled);
+        document.getElementById('maintenanceIndicator').classList.toggle('flex', enabled);
+        toast(enabled ? 'Maintenance mode enabled' : 'Maintenance mode disabled', 'success');
+      } catch (err) {
+        // Revert toggle if failed
+        document.getElementById('maintenanceToggle').checked = !enabled;
+        toast('Failed to toggle maintenance mode', 'error');
+      }
+    }
+
+    async function saveMaintenanceMessage() {
+      const message = document.getElementById('maintenanceMessage').value.trim();
+      if (!message) {
+        toast('Please enter a maintenance message', 'error');
+        return;
+      }
+      try {
+        await api('/config', { method: 'POST', body: { key: 'msg_maintenance', value: message } });
+        toast('Maintenance message saved!', 'success');
+      } catch (err) {
+        toast('Failed to save message', 'error');
+      }
+    }
+
+    async function clearAllQueues() {
+      if (!confirm('Clear all waiting queues?')) return;
+      try {
+        await api('/system/clear-queues', { method: 'POST' });
+        toast('Queues cleared', 'success');
+        loadStats();
+      } catch (err) {
+        console.error('Clear queues failed:', err);
+      }
+    }
+
+    async function disconnectAllChats() {
+      if (!confirm('Disconnect all active chats?')) return;
+      try {
+        const result = await api('/system/disconnect-all', { method: 'POST' });
+        toast(`All chats disconnected (${result.disconnected || 0} pairs)`, 'success');
+        loadStats();
+      } catch (err) {
+        console.error('Disconnect all failed:', err);
+      }
+    }
+
+    async function clearCache() {
+      try {
+        await api('/system/clear-cache', { method: 'POST' });
+        toast('Cache cleared', 'success');
+      } catch (err) {
+        console.error('Clear cache failed:', err);
+      }
+    }
+
+    // Analytics
+    function initAnalytics() {
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      document.getElementById('analyticsEndDate').value = today.toISOString().split('T')[0];
+      document.getElementById('analyticsStartDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+      loadAnalytics();
+    }
+
+    async function loadAnalytics() {
+      const startDate = document.getElementById('analyticsStartDate').value;
+      const endDate = document.getElementById('analyticsEndDate').value;
+      try {
+        const data = await api(`/analytics?startDate=${startDate}&endDate=${endDate}`);
+        
+        // Update summary stats
+        let totalNew = 0, totalChats = 0, totalRevenue = 0, ratingCount = 0, ratingSum = 0;
+        if (Array.isArray(data)) {
+          data.forEach(d => {
+            totalNew += d.newUsers || 0;
+            totalChats += d.totalChats || 0;
+            totalRevenue += d.vipRevenue || 0;
+            if (d.positiveRatings !== undefined) {
+              ratingSum += d.positiveRatings;
+              ratingCount += (d.positiveRatings || 0) + (d.negativeRatings || 0);
+            }
+          });
+        }
+        
+        document.getElementById('analytics-newUsers').textContent = totalNew.toLocaleString();
+        document.getElementById('analytics-totalChats').textContent = totalChats.toLocaleString();
+        document.getElementById('analytics-vipRevenue').textContent = totalRevenue.toLocaleString() + ' ⭐';
+        document.getElementById('analytics-avgRating').textContent = ratingCount > 0 ? ((ratingSum / ratingCount) * 100).toFixed(1) + '%' : 'N/A';
+        
+        // Update chart
+        const ctx = document.getElementById('analyticsChart').getContext('2d');
+        if (analyticsChart) analyticsChart.destroy();
+        
+        const labels = Array.isArray(data) ? data.map(d => d.date) : [];
+        const newUsersData = Array.isArray(data) ? data.map(d => d.newUsers || 0) : [];
+        const chatsData = Array.isArray(data) ? data.map(d => d.totalChats || 0) : [];
+        
+        analyticsChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              { label: 'New Users', data: newUsersData, borderColor: '#3b82f6', tension: 0.3, fill: false },
+              { label: 'Chats', data: chatsData, borderColor: '#8b5cf6', tension: 0.3, fill: false }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+              x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+              y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+            }
+          }
+        });
+      } catch (err) {}
+    }
+
+    // Audit Logs
+    async function loadAuditLogs() {
+      const filter = document.getElementById('auditFilter').value;
+      try {
+        const data = await api(`/audit-logs?category=${filter}&limit=50`);
+        const container = document.getElementById('auditLogsContainer');
+        
+        if (!data.logs || data.logs.length === 0) {
+          container.innerHTML = '<div class="p-8 text-center text-dark-500">No audit logs found</div>';
+          return;
+        }
+        
+        container.innerHTML = data.logs.map(log => {
+          const time = new Date(log.createdAt).toLocaleString();
+          const icons = { auth: '🔐', user: '👤', config: '⚙️', broadcast: '📢', maintenance: '🔧' };
+          const icon = icons[log.category] || '📝';
+          return `<div class="p-3 hover:bg-dark-800">
+            <div class="flex items-center gap-2 mb-1">
+              <span>${icon}</span>
+              <span class="font-medium text-sm">${log.action}</span>
+              <span class="text-xs text-dark-500 ml-auto">${time}</span>
+            </div>
+            <div class="text-xs text-dark-400">${log.details || ''}</div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        document.getElementById('auditLogsContainer').innerHTML = '<div class="p-8 text-center text-dark-500">Failed to load logs</div>';
+      }
+    }
+
+    // Export
+    async function exportData() {
+      const table = document.getElementById('exportTable').value;
+      const format = document.getElementById('exportFormat').value;
+      const limit = document.getElementById('exportLimit').value;
+      
+      try {
+        const params = new URLSearchParams({ table, format });
+        if (limit) params.append('limit', limit);
+        
+        const res = await fetch(`/api/admin/export?${params}`, {
+          headers: { 'X-Admin-Token': authToken }
+        });
+        
+        if (!res.ok) throw new Error('Export failed');
+        
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${table}_export.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('Export downloaded!', 'success');
+      } catch (err) { toast('Export failed', 'error'); }
+    }
+
+    // ==================== QUICK ACTIONS ====================
+    
+    let quickSelectedUserId = null;
+    let quickUserData = null;
+
+    async function quickUserLookup() {
+      const userId = document.getElementById('quickUserId').value.trim();
+      if (!userId) {
+        toast('Please enter a user ID', 'error');
+        return;
+      }
+      
+      try {
+        const data = await api(`/quick/user/${userId}`);
+        quickSelectedUserId = userId;
+        quickUserData = data;
+        
+        // Display user info
+        document.getElementById('quickInfo-userId').textContent = data.user.userId || data.user.telegramId;
+        document.getElementById('quickInfo-username').textContent = data.telegram?.username ? `@${data.telegram.username}` : 'No username';
+        document.getElementById('quickInfo-name').textContent = [data.telegram?.firstName, data.telegram?.lastName].filter(Boolean).join(' ') || '-';
+        document.getElementById('quickInfo-genderAge').textContent = `${data.user.gender || '-'} / ${data.user.age || '-'}`;
+        document.getElementById('quickInfo-vip').textContent = data.isVip ? `⭐ Yes (expires ${new Date(data.vipExpiry).toLocaleDateString()})` : 'No';
+        document.getElementById('quickInfo-totalChats').textContent = data.user.totalChats || 0;
+        
+        // Update status badge
+        const statusEl = document.getElementById('quickUserStatus');
+        if (data.user.banned) {
+          statusEl.textContent = '🚫 Banned';
+          statusEl.className = 'px-2 py-1 rounded text-xs bg-red-900/50 text-red-300';
+        } else if (data.status === 'chatting') {
+          statusEl.textContent = '💬 Chatting';
+          statusEl.className = 'px-2 py-1 rounded text-xs bg-green-900/50 text-green-300';
+        } else if (data.status === 'searching') {
+          statusEl.textContent = '🔍 Searching';
+          statusEl.className = 'px-2 py-1 rounded text-xs bg-yellow-900/50 text-yellow-300';
+        } else {
+          statusEl.textContent = '⏸️ Idle';
+          statusEl.className = 'px-2 py-1 rounded text-xs bg-dark-700 text-dark-300';
+        }
+        
+        // Update ban button text
+        const banBtn = document.getElementById('quickBanBtn');
+        if (data.user.banned) {
+          banBtn.innerHTML = '<span>✓</span> Unban User';
+          banBtn.className = 'w-full bg-green-900/50 hover:bg-green-800/70 text-green-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2';
+        } else {
+          banBtn.innerHTML = '<span>🚫</span> Ban User';
+          banBtn.className = 'w-full bg-orange-900/50 hover:bg-orange-800/70 text-orange-300 px-3 py-2 rounded-lg text-sm flex items-center gap-2';
+        }
+        
+        // Show partner info if chatting
+        const partnerSection = document.getElementById('quickPartnerSection');
+        if (data.partner) {
+          document.getElementById('quickInfo-partnerId').textContent = data.partner.userId;
+          const partnerName = [data.partner.firstName, data.partner.username ? `(@${data.partner.username})` : ''].filter(Boolean).join(' ');
+          document.getElementById('quickInfo-partnerName').textContent = partnerName || '';
+          partnerSection.classList.remove('hidden');
+        } else {
+          partnerSection.classList.add('hidden');
+        }
+        
+        document.getElementById('quickUserInfo').classList.remove('hidden');
+        toast('User found!', 'success');
+      } catch (err) {
+        document.getElementById('quickUserInfo').classList.add('hidden');
+        quickSelectedUserId = null;
+        quickUserData = null;
+        toast(err.message || 'User not found', 'error');
+      }
+    }
+
+    async function quickDisconnectUser() {
+      if (!quickSelectedUserId) {
+        toast('Please lookup a user first', 'error');
+        return;
+      }
+      
+      const reason = prompt('Disconnect reason (optional):', 'Admin action');
+      if (reason === null) return; // Cancelled
+      
+      try {
+        const result = await api('/quick/disconnect', {
+          method: 'POST',
+          body: { userId: quickSelectedUserId, reason: reason || 'Admin action' }
+        });
+        
+        if (result.wasConnected) {
+          toast(`User disconnected from partner ${result.partnerId}`, 'success');
+        } else {
+          toast('User was not in a chat', 'info');
+        }
+        
+        // Refresh user info
+        quickUserLookup();
+      } catch (err) {
+        toast(err.message || 'Disconnect failed', 'error');
+      }
+    }
+
+    function showQuickMessageModal() {
+      if (!quickSelectedUserId) {
+        toast('Please lookup a user first', 'error');
+        return;
+      }
+      
+      document.getElementById('quickMsgUserId').textContent = quickSelectedUserId;
+      document.getElementById('quickMessageText').value = '';
+      document.getElementById('quickMsgDisconnect').checked = true;
+      document.getElementById('quickMessageModal').classList.remove('hidden');
+    }
+
+    function closeQuickMessageModal() {
+      document.getElementById('quickMessageModal').classList.add('hidden');
+    }
+
+    async function sendQuickMessage() {
+      const message = document.getElementById('quickMessageText').value.trim();
+      const disconnectFirst = document.getElementById('quickMsgDisconnect').checked;
+      
+      if (!message) {
+        toast('Please enter a message', 'error');
+        return;
+      }
+      
+      try {
+        await api('/quick/message', {
+          method: 'POST',
+          body: {
+            userId: quickSelectedUserId,
+            message,
+            disconnectFirst
+          }
+        });
+        
+        toast('Message sent successfully!', 'success');
+        closeQuickMessageModal();
+        
+        // Refresh user info if disconnect was used
+        if (disconnectFirst) {
+          setTimeout(quickUserLookup, 500);
+        }
+      } catch (err) {
+        toast(err.message || 'Failed to send message', 'error');
+      }
+    }
+
+    async function quickBanUser() {
+      if (!quickSelectedUserId) {
+        toast('Please lookup a user first', 'error');
+        return;
+      }
+      
+      const isBanned = quickUserData?.user?.banned;
+      const action = isBanned ? 'unban' : 'ban';
+      
+      if (!confirm(`Are you sure you want to ${action} user ${quickSelectedUserId}?`)) return;
+      
+      try {
+        await api(`/users/${quickSelectedUserId}/${action}`, { method: 'POST' });
+        toast(`User ${action}ned successfully!`, 'success');
+        quickUserLookup();
+      } catch (err) {
+        toast(err.message || `Failed to ${action} user`, 'error');
+      }
+    }
+
+    async function quickGiveVip() {
+      if (!quickSelectedUserId) {
+        toast('Please lookup a user first', 'error');
+        return;
+      }
+      
+      const days = prompt('VIP duration (days):', '30');
+      if (!days || isNaN(parseInt(days))) return;
+      
+      try {
+        await api(`/users/${quickSelectedUserId}/vip`, {
+          method: 'POST',
+          body: { days: parseInt(days) }
+        });
+        toast(`VIP granted for ${days} days!`, 'success');
+        quickUserLookup();
+      } catch (err) {
+        toast(err.message || 'Failed to grant VIP', 'error');
+      }
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+      if (authToken) showDashboard();
+    });
+  </script>
+</body>
+</html>
