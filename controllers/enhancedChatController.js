@@ -1686,6 +1686,9 @@ class EnhancedChatController {
           ...keyboards.getMainKeyboard()
         });
       }
+    } catch (error) {
+      console.error('Error in message relay handler:', error);
+    }
     });
   }
 
