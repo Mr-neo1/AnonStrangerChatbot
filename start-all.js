@@ -87,7 +87,10 @@ process.on('uncaughtException', (error) => {
 
 // Start all services
 if (require.main === module) {
-  startAll();
+  startAll().catch(err => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
+  });
 }
 
 module.exports = { startAll };
