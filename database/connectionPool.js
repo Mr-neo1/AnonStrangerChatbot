@@ -10,8 +10,8 @@ if (config.POSTGRES_URI) {
     dialect: "postgres",
     logging: false,
     pool: {
-      max: 100,       // Increased for 10-15k DAU (handles peak load)
-      min: 20,        // More warm connections ready
+      max: 25,        // Optimal for 10-15k DAU without exhausting PG connections
+      min: 5,         // Fewer warm connections to reduce idle resource usage
       acquire: 30000,
       idle: 10000,
       evict: 1000,    // Check for idle connections every 1s

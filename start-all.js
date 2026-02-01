@@ -29,6 +29,7 @@ if (fs.existsSync('.env.local')) {
 }
 
 const logger = require('./utils/logger');
+const { registerShutdownHandlers, onShutdown } = require('./utils/shutdownHandler');
 
 async function startAll() {
   try {
@@ -37,14 +38,29 @@ async function startAll() {
     // 1. Start admin dashboard server first
     const adminPort = process.env.ADMIN_PANEL_PORT || 4000;
     logger.info('Starting admin dashboard on port ' + adminPort);
-    const { startAdminServer } = require('./admin-server');
+    const { startAdminServer, stopAdminServer } = require('./admin-server');
     await startAdminServer();
+    
+    // Register admin server for graceful shutdown
+    onShutdown(async () => {
+      logger.info('Stopping admin server...');
+      await stopAdminServer();
+    });
     
     // 2. Start Telegram bot (multi-bot support)
     logger.info('Starting Telegram bot...');
-    const { initBots, startHealthCheck } = require('./bots');
+    const { initBots, startHealthCheck, stopAllBots } = require('./bots');
     await initBots();
     startHealthCheck();
+    
+    // Register bots for graceful shutdown
+    onShutdown(async () => {
+      logger.info('Stopping Telegram bots...');
+      await stopAllBots();
+    });
+    
+    // 3. Register centralized shutdown handlers
+    registerShutdownHandlers();
     
     logger.info('✅ All services started successfully');
     logger.info('Admin dashboard: http://localhost:' + adminPort + '/admin');
@@ -57,25 +73,17 @@ async function startAll() {
 
 // Handle unhandled rejections and uncaught exceptions
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+  logger.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
   // Don't exit - let the app try to recover
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+  logger.error('❌ Uncaught Exception:', error);
   // Don't exit immediately - log the error first
 });
 
-// Handle graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('Received SIGINT. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  logger.info('Received SIGTERM. Shutting down gracefully...');
-  process.exit(0);
-});
+// NOTE: SIGINT/SIGTERM handlers are now in shutdownHandler.js
+// and are registered via registerShutdownHandlers() in startAll()
 
 // Start all services
 if (require.main === module) {

@@ -56,7 +56,10 @@ const defaultMessages = {
     "2️⃣ No spam or advertising\n" +
     "3️⃣ No sharing personal information\n" +
     "4️⃣ No inappropriate content\n" +
-    "5️⃣ Report abusive users"
+    "5️⃣ Report abusive users",
+
+  msg_chat_locked: "🔒 This chat is locked by your partner.\n\n" +
+    "You cannot leave until the lock expires or your partner ends the chat."
 };
 
 // In-memory cache for messages (refreshed every 60 seconds)
@@ -202,6 +205,13 @@ class MessagesService {
    */
   static async getRules() {
     return this.get('msg_rules');
+  }
+
+  /**
+   * Get chat locked message (when non-owner tries to leave locked chat)
+   */
+  static async getChatLocked() {
+    return this.get('msg_chat_locked');
   }
 }
 

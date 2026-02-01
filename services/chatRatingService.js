@@ -17,12 +17,12 @@ class ChatRatingService {
     return {
       inline_keyboard: [
         [
-          { text: '👍 Good Chat', callback_data: 'rate_positive' },
-          { text: '👎 Bad Chat', callback_data: 'rate_negative' }
+          { text: '👍 Good', callback_data: 'RATE_POSITIVE' },
+          { text: '👎 Bad', callback_data: 'RATE_NEGATIVE' }
         ],
         [
-          { text: '⚠️ Report User', callback_data: 'rate_report' },
-          { text: '⏭️ Skip', callback_data: 'rate_skip' }
+          { text: '⚠️ Report', callback_data: 'RATE_REPORT' },
+          { text: '⏭️ Skip', callback_data: 'RATE_SKIP' }
         ]
       ]
     };
@@ -271,17 +271,12 @@ class ChatRatingService {
     return {
       inline_keyboard: [
         [
-          { text: '👍', callback_data: 'RATE:positive' },
-          { text: '👎', callback_data: 'RATE:negative' }
+          { text: '👍 Good', callback_data: 'RATE_POSITIVE' },
+          { text: '👎 Bad', callback_data: 'RATE_NEGATIVE' }
         ],
         [
-          { text: '📵 VCS Spam', callback_data: 'REPORT:vcs_spam' }
-        ],
-        [
-          { text: '❌ Vulgar partner', callback_data: 'REPORT:vulgar' }
-        ],
-        [
-          { text: '⚠️ Report →', callback_data: 'REPORT:menu' }
+          { text: '⚠️ Report', callback_data: 'RATE_REPORT' },
+          { text: '⏭️ Skip', callback_data: 'RATE_SKIP' }
         ]
       ]
     };
@@ -294,22 +289,15 @@ class ChatRatingService {
     return {
       inline_keyboard: [
         [
-          { text: '📵 VCS Spam', callback_data: 'REPORT:vcs_spam' }
+          { text: '📵 VCS Spam', callback_data: 'REPORT_VCS_SPAM' },
+          { text: '❌ Vulgar', callback_data: 'REPORT_VULGAR' }
         ],
         [
-          { text: '❌ Vulgar/Inappropriate', callback_data: 'REPORT:vulgar' }
+          { text: '🚫 Harassment', callback_data: 'REPORT_HARASSMENT' },
+          { text: '⚠️ Underage', callback_data: 'REPORT_UNDERAGE' }
         ],
         [
-          { text: '🚫 Harassment', callback_data: 'REPORT:harassment' }
-        ],
-        [
-          { text: '⚠️ Underage', callback_data: 'REPORT:underage' }
-        ],
-        [
-          { text: '📝 Other (describe)', callback_data: 'REPORT:other' }
-        ],
-        [
-          { text: '🔙 Back', callback_data: 'REPORT:back' }
+          { text: '🔙 Back', callback_data: 'RATE_BACK' }
         ]
       ]
     };

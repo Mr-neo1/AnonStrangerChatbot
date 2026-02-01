@@ -14,9 +14,32 @@ const User = require('./models/userModel');
 const VipSubscription = require('./models/vipSubscriptionModel');
 const { redisClient } = require('./database/redisClient');
 const { Op } = require('sequelize');
+const { scanKeys } = require('./utils/redisScanHelper');
 
 const app = express();
 const PORT = process.env.ADMIN_PANEL_PORT || 4000;
+
+// ==================== SECURITY HEADERS ====================
+app.use((req, res, next) => {
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+  // Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Enable XSS filter
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  // Referrer policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Content Security Policy
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: https:; " +
+    "connect-src 'self';"
+  );
+  next();
+});
 
 // Lightweight middleware
 app.use(express.json({ limit: '100kb' })); // Small payload limit
@@ -132,12 +155,60 @@ setInterval(() => {
   }
 }, 60000);
 
-// Admin credentials from env
+// Admin credentials from env - REQUIRE in production
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
 
-// Auth middleware
+// Security check: Don't allow default/missing password in production
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD === 'changeme123') {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('\n❌ FATAL: ADMIN_PASSWORD must be set in production!\n');
+    console.error('Set a strong password in your .env file:\n  ADMIN_PASSWORD=your_strong_password_here\n');
+    process.exit(1);
+  } else {
+    console.warn('\n⚠️  WARNING: Using default admin password. Set ADMIN_PASSWORD in .env for production!\n');
+  }
+}
+
+// Use default only in development
+const EFFECTIVE_ADMIN_PASSWORD = ADMIN_PASSWORD || 'changeme123';
+
+// ==================== API RATE LIMITING ====================
+// Rate limiter for all authenticated API endpoints (prevents abuse)
+const apiRateLimits = new Map();
+const API_RATE_WINDOW = 60 * 1000; // 1 minute
+const API_RATE_MAX = 120; // 120 requests per minute per admin
+
+function checkApiRateLimit(adminId) {
+  const now = Date.now();
+  const key = `api:${adminId}`;
+  const record = apiRateLimits.get(key);
+  
+  if (!record || now - record.windowStart > API_RATE_WINDOW) {
+    apiRateLimits.set(key, { count: 1, windowStart: now });
+    return { allowed: true, remaining: API_RATE_MAX - 1 };
+  }
+  
+  if (record.count >= API_RATE_MAX) {
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil((API_RATE_WINDOW - (now - record.windowStart)) / 1000) };
+  }
+  
+  record.count++;
+  return { allowed: true, remaining: API_RATE_MAX - record.count };
+}
+
+// Cleanup API rate limits every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of apiRateLimits.entries()) {
+    if (now - record.windowStart > API_RATE_WINDOW) {
+      apiRateLimits.delete(key);
+    }
+  }
+}, 60000);
+
+// Auth middleware with rate limiting
 async function requireAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
   if (!token) {
@@ -154,6 +225,17 @@ async function requireAuth(req, res, next) {
     await deleteSession(token);
     return res.status(401).json({ error: 'Session expired' });
   }
+  
+  // Apply API rate limiting for authenticated requests
+  const rateCheck = checkApiRateLimit(session.adminId);
+  if (!rateCheck.allowed) {
+    res.set('Retry-After', rateCheck.retryAfter);
+    return res.status(429).json({ 
+      error: 'Too many requests', 
+      retryAfter: rateCheck.retryAfter 
+    });
+  }
+  res.set('X-RateLimit-Remaining', rateCheck.remaining);
   
   req.adminId = session.adminId;
   req.sessionToken = token;
@@ -176,7 +258,7 @@ app.post('/api/admin/login', async (req, res) => {
   
   const { username, password } = req.body;
   
-  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  if (username === ADMIN_USERNAME && password === EFFECTIVE_ADMIN_PASSWORD) {
     // Success - reset rate limit
     resetRateLimit(clientIp);
     
@@ -454,11 +536,11 @@ app.get('/api/admin/stats', requireAuth, async (req, res) => {
       User.count({ where: { banned: true } })
     ]);
     
-    // Get active chats from Redis
+    // Get active chats from Redis (using SCAN instead of KEYS for production)
     let activeChats = 0;
     let activeUserIds = [];
     try {
-      const keys = await redisClient.keys('pair:*');
+      const keys = await scanKeys(redisClient, 'pair:*', 100);
       activeChats = Math.floor((keys?.length || 0) / 2);
       // Extract user IDs from pair keys
       activeUserIds = keys.map(k => k.replace('pair:', ''));
@@ -509,34 +591,83 @@ app.get('/api/admin/stats', requireAuth, async (req, res) => {
   }
 });
 
-// Get live active users
+// Get live active users with details
 app.get('/api/admin/active-users', requireAuth, async (req, res) => {
   try {
     const activeUsers = [];
+    const userIds = new Set();
+    const processedPairs = new Set(); // Track processed pairs to avoid duplicates
     
-    // Get users in active chats
-    const pairKeys = await redisClient.keys('pair:*').catch(() => []);
+    // Get users in active chats (using SCAN instead of KEYS)
+    const pairKeys = await scanKeys(redisClient, 'pair:*', 100).catch(() => []);
     for (const key of pairKeys) {
-      const userId = key.replace('pair:', '');
+      const odUserId = key.replace('pair:', '');
       const partnerId = await redisClient.get(key).catch(() => null);
-      activeUsers.push({
-        userId,
-        status: 'chatting',
-        partnerId
-      });
+      
+      // Create a unique pair key (sorted to ensure consistency)
+      const pairKey = [odUserId, partnerId].sort().join('-');
+      
+      // Skip if we've already processed this pair
+      if (processedPairs.has(pairKey)) continue;
+      processedPairs.add(pairKey);
+      
+      if (!userIds.has(odUserId)) {
+        userIds.add(odUserId);
+        activeUsers.push({
+          odUserId: odUserId,
+          status: 'chatting',
+          partnerId
+        });
+      }
+      // Also add partnerId to userIds set for enrichment
+      if (partnerId) userIds.add(partnerId);
     }
     
     // Get users in queue
     const queuePatterns = ['queue:vip', 'queue:free', 'queue:general', 'queue:vip:any'];
     for (const pattern of queuePatterns) {
       const users = await redisClient.lRange(pattern, 0, -1).catch(() => []);
-      for (const userId of (users || [])) {
-        if (!activeUsers.find(u => u.userId === userId)) {
+      for (const odUserId of (users || [])) {
+        if (!userIds.has(odUserId)) {
+          userIds.add(odUserId);
           activeUsers.push({
-            userId,
+            odUserId: odUserId,
             status: 'searching',
-            queue: pattern
+            queue: pattern.replace('queue:', '')
           });
+        }
+      }
+    }
+    
+    // Fetch user details from database for all active users
+    if (activeUsers.length > 0) {
+      const User = require('./models/userModel');
+      const userDetails = await User.findAll({
+        where: { telegramId: Array.from(userIds).map(id => String(id)) },
+        attributes: ['telegramId', 'username', 'firstName', 'gender', 'age', 'botId'],
+        raw: true
+      }).catch(() => []);
+      
+      // Create lookup map
+      const userMap = {};
+      for (const u of userDetails) {
+        userMap[String(u.telegramId)] = u;
+      }
+      
+      // Enrich active users with details
+      for (const au of activeUsers) {
+        const details = userMap[String(au.odUserId)] || {};
+        au.username = details.username || null;
+        au.firstName = details.firstName || null;
+        au.gender = details.gender || null;
+        au.age = details.age || null;
+        au.botId = details.botId || null;
+        
+        // Add partner details if chatting
+        if (au.partnerId && userMap[String(au.partnerId)]) {
+          const partnerDetails = userMap[String(au.partnerId)];
+          au.partnerUsername = partnerDetails.username || null;
+          au.partnerFirstName = partnerDetails.firstName || null;
         }
       }
     }
@@ -775,7 +906,7 @@ app.get('/api/admin/users', requireAuth, async (req, res) => {
       limit: parseInt(limit),
       offset,
       order: [['createdAt', 'DESC']],
-      attributes: ['userId', 'telegramId', 'gender', 'age', 'banned', 'totalChats', 'createdAt', 'botId']
+      attributes: ['userId', 'telegramId', 'username', 'firstName', 'gender', 'age', 'banned', 'totalChats', 'createdAt', 'botId']
     });
     
     // Get VIP status for each user
@@ -1943,8 +2074,8 @@ app.post('/api/admin/maintenance', requireAuth, async (req, res) => {
           const TelegramBot = require('node-telegram-bot-api');
           const tempBot = new TelegramBot(botTokens[0], { polling: false });
           
-          // Get users in active chats and queue
-          const pairKeys = await redisClient.keys('pair:*').catch(() => []);
+          // Get users in active chats and queue (using SCAN)
+          const pairKeys = await scanKeys(redisClient, 'pair:*', 100).catch(() => []);
           const userIds = new Set(pairKeys.map(k => k.replace('pair:', '')));
           
           const maintenanceMsg = message || '🔧 Bot is under maintenance. Please try again later.';
@@ -1971,11 +2102,8 @@ app.post('/api/admin/maintenance', requireAuth, async (req, res) => {
 
 // Helper function to scan Redis keys (non-blocking alternative to KEYS)
 async function scanRedisKeys(pattern) {
-  const keys = [];
-  // For memory Redis or simple use case, just use keys()
   try {
-    const found = await redisClient.keys(pattern).catch(() => []);
-    return found || [];
+    return await scanKeys(redisClient, pattern, 100);
   } catch (e) {
     console.error(`Error scanning keys for pattern ${pattern}:`, e.message);
     return [];
@@ -2252,9 +2380,9 @@ app.get('/health', async (req, res) => {
     // Pool stats not available
   }
   
-  // Active sessions count
+  // Active sessions count (using SCAN)
   try {
-    const sessionKeys = await redisClient.keys(SESSION_PREFIX + '*').catch(() => []);
+    const sessionKeys = await scanKeys(redisClient, SESSION_PREFIX + '*', 50).catch(() => []);
     health.checks.activeSessions = sessionKeys.length + memorySessionsFallback.size;
   } catch (e) {
     health.checks.activeSessions = memorySessionsFallback.size;
@@ -2382,9 +2510,38 @@ async function startAdminServer() {
   }
 }
 
+async function stopAdminServer() {
+  if (server) {
+    return new Promise((resolve) => {
+      server.close((err) => {
+        if (err) {
+          console.error('Error closing admin server:', err);
+        } else {
+          console.log('✅ Admin Panel server stopped');
+        }
+        server = null;
+        resolve();
+      });
+    });
+  }
+}
+
+// ==================== GLOBAL ERROR HANDLER ====================
+// Catch-all error handler to prevent crashes from unhandled errors
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled Express error:', err.message);
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Handle unhandled promise rejections in Express context
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection in admin-server:', reason);
+});
+
 // Only start if run directly
 if (require.main === module) {
   startAdminServer();
 }
 
-module.exports = { app, startAdminServer };
+module.exports = { app, startAdminServer, stopAdminServer };

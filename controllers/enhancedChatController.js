@@ -62,6 +62,7 @@ const LockChatService = require('../services/lockChatService');
 const ReferralService = require('../services/referralService');
 const AbuseService = require('../services/abuseService');
 const UserCacheService = require('../services/userCacheService');
+const SpamDetectionService = require('../services/spamDetectionService');
 const config = require('../config/config');
 const { isFeatureEnabled } = require('../config/featureFlags');
 
@@ -355,7 +356,7 @@ class EnhancedChatController {
             chat_id: chatId,
             message_id: cb.message.message_id,
             parse_mode: 'Markdown',
-            reply_markup: ChatRatingService.getReportKeyboard()
+            reply_markup: ChatRatingService.getDetailedReportKeyboard()
           }).catch(() => {});
           return;
         }
@@ -676,6 +677,11 @@ class EnhancedChatController {
       await this.handleFind(msg);
     }));
 
+    // /link command - share profile link with partner (only allowed way to share ID)
+    this.bot.onText(/\/link/, this.withChannelVerification(async (msg) => {
+      await this.shareProfileLink(msg);
+    }));
+
     // /report command - show report options
     this.bot.onText(/\/report/, this.withChannelVerification(async (msg) => {
       const chatId = msg.chat.id;
@@ -858,10 +864,47 @@ class EnhancedChatController {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
 
-    // Get the combined "chat ended + searching" message for /next flow
+    // FIRST: Check if channel verification passes
+    if (!(await checkUserJoined(this.bot, userId, chatId))) {
+      return;
+    }
+    
+    // SECOND: Check profile completion before doing anything
+    const user = await UserCacheService.getUser(userId);
+    if (!user || !user.gender || !user.age) {
+      await this.bot.sendMessage(chatId, "❌ Your profile is incomplete. Use /start to set up your profile.\n\n💡 Send /start and complete your gender and age selection.", {
+        parse_mode: 'Markdown',
+        ...keyboards.getMainKeyboard()
+      });
+      return;
+    }
+
+    // THIRD: Check for locks BEFORE sending any "searching" message
+    const partnerId = await redisClient.get("pair:" + chatId);
+    let lockedRoom = null;
+    if (await LockChatService.isChatLocked(chatId)) lockedRoom = String(chatId);
+    else if (partnerId && await LockChatService.isChatLocked(partnerId)) lockedRoom = String(partnerId);
+
+    if (lockedRoom) {
+      const owners = await LockChatService.getLockOwners(lockedRoom);
+      const ownerId = owners && owners.length > 0 ? owners[0] : null;
+      if (String(userId) !== String(ownerId)) {
+        // Record lock abuse observationally
+        try { await AbuseService.recordLockAbuse({ chatId: lockedRoom, offenderId: userId, ownerId: ownerId, botId: config.BOT_ID || 'default' }); } catch (_) {}
+
+        // Get configurable locked message - only show this, no searching message
+        const lockedMsg = await MessagesService.getChatLocked() || '🔒 This chat is locked by your partner.';
+        await this.bot.sendMessage(chatId, lockedMsg, {
+          parse_mode: 'Markdown',
+          ...keyboards.getActiveChatKeyboard()
+        });
+        return; // IMPORTANT: Stop here, do not search for new partner
+      }
+    }
+
+    // FOURTH: All checks passed - NOW send the searching message
     const chatEndedNextMsg = await MessagesService.getChatEndedNext() || '💬 You stopped the chat\n\n🔎 Looking for a new partner...\n\n/stop — stop searching';
 
-    // INSTANT FEEDBACK: Send combined message IMMEDIATELY
     let searchMsgId = null;
     try {
       const instantMsg = await this.bot.sendMessage(chatId, chatEndedNextMsg, {
@@ -898,40 +941,7 @@ class EnhancedChatController {
       await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...keyboard });
     };
 
-    if (!(await checkUserJoined(this.bot, userId, chatId))) {
-      await deleteInstantMsg();
-      return;
-    }
-    
-    // Use cached user data (performance optimization)
-    const user = await UserCacheService.getUser(userId);
-    if (!user || !user.gender || !user.age) {
-      await showError("❌ Your profile is incomplete. Use /start to set up your profile.\n\n💡 Send /start and complete your gender and age selection.", keyboards.getMainKeyboard());
-      return;
-    }
-
-    // If chat is locked (either on this chat or partner's chat), disallow skip/next unless caller is the lock owner
-    const partnerId = await redisClient.get("pair:" + chatId);
-
-    // Determine which chat room (if any) has an active lock
-    let lockedRoom = null;
-    if (await LockChatService.isChatLocked(chatId)) lockedRoom = String(chatId);
-    else if (partnerId && await LockChatService.isChatLocked(partnerId)) lockedRoom = String(partnerId);
-
-    if (lockedRoom) {
-      const owners = await LockChatService.getLockOwners(lockedRoom);
-      const ownerId = owners && owners.length > 0 ? owners[0] : null;
-      if (String(userId) !== String(ownerId)) {
-        // Record lock abuse observationally (do not change flow)
-        try { await AbuseService.recordLockAbuse({ chatId: lockedRoom, offenderId: userId, ownerId: ownerId, botId: config.BOT_ID || 'default' }); } catch (_) {}
-
-        await showError('🔒 This chat is locked by your partner.', keyboards.getActiveChatKeyboard());
-        return;
-      }
-    }
-
-    // DON'T delete message - it will be used by searchPartner
-
+    // Proceed with search
     const currentPair = await redisClient.get("pair:" + chatId);
     if (currentPair) {
       // Stop current chat SILENTLY (skipNotification=true) - don't send "chat ended" to caller
@@ -942,26 +952,67 @@ class EnhancedChatController {
     }
   }
 
-  // Share profile handler
+  // Share profile handler (deprecated - use shareProfileLink via /link command)
   async shareProfile(msg) {
     const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const username = msg.from.username;
+    try {
+      const userId = msg.from.id;
+      const username = msg.from.username;
 
-    const pair = await redisClient.get("pair:" + chatId);
-    if (pair) {
+      const pair = await redisClient.get("pair:" + chatId);
+      if (pair) {
+        const profileURL = username ? `https://t.me/${username}` : `tg://user?id=${userId}`;
+        await BotRouter.sendMessage(pair, `🔗 *Your partner shared their profile:*\n[Click Here](${profileURL})`, { 
+          parse_mode: "Markdown",
+          ...keyboards.getActiveChatKeyboard()
+        });
+        await this.bot.sendMessage(chatId, "✅ Your profile link has been sent to your partner.", keyboards.getActiveChatKeyboard());
+      } else {
+        const notPairedMsg = await MessagesService.getNotPaired() || enhancedMessages.notPaired;
+        this.bot.sendMessage(chatId, notPairedMsg, {
+          parse_mode: "Markdown",
+          ...keyboards.getMainKeyboard()
+        });
+      }
+    } catch (error) {
+      console.error('Error in shareProfile:', error);
+      this.bot.sendMessage(chatId, '❌ Failed to share profile. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
+    }
+  }
+
+  // Share profile link via /link command (official way to share profile)
+  async shareProfileLink(msg) {
+    const chatId = msg.chat.id;
+    try {
+      const userId = msg.from.id;
+      const username = msg.from.username;
+
+      const pair = await redisClient.get("pair:" + chatId);
+      if (!pair || pair === chatId.toString()) {
+        const notPairedMsg = await MessagesService.getNotPaired() || enhancedMessages.notPaired;
+        return this.bot.sendMessage(chatId, notPairedMsg, {
+          parse_mode: "Markdown",
+          ...keyboards.getMainKeyboard()
+        });
+      }
+
+      // Build profile URL
       const profileURL = username ? `https://t.me/${username}` : `tg://user?id=${userId}`;
-      await BotRouter.sendMessage(pair, `🔗 *Your partner shared their profile:*\n[Click Here](${profileURL})`, { 
+      
+      // Send to partner
+      await BotRouter.sendMessage(pair, `🔗 *Your partner shared their profile:*\n[Click Here to Connect](${profileURL})\n\n_Sent via /link command_`, { 
         parse_mode: "Markdown",
         ...keyboards.getActiveChatKeyboard()
       });
-      await this.bot.sendMessage(chatId, "✅ Your profile link has been sent to your partner.", keyboards.getActiveChatKeyboard());
-    } else {
-      const notPairedMsg = await MessagesService.getNotPaired() || enhancedMessages.notPaired;
-      this.bot.sendMessage(chatId, notPairedMsg, {
+      
+      // Confirm to sender
+      await this.bot.sendMessage(chatId, "✅ *Profile link sent!*\n\nYour partner can now click to connect with you directly.", {
         parse_mode: "Markdown",
-        ...keyboards.getMainKeyboard()
+        ...keyboards.getActiveChatKeyboard()
       });
+    } catch (error) {
+      console.error('Error in shareProfileLink:', error);
+      this.bot.sendMessage(chatId, '❌ Failed to share profile link. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
     }
   }
 
@@ -1025,10 +1076,18 @@ class EnhancedChatController {
       // Use cached user data (performance optimization)
     const user = await UserCacheService.getUser(userId);
       
-      const fullName = firstName + (lastName ? ' ' + lastName : '');
+      // Escape markdown special characters in user-provided text
+      const escapeMarkdown = (text) => {
+        if (!text) return '';
+        return String(text).replace(/[_*`\[\]()~>#+=|{}.!-]/g, '\\$&');
+      };
+      
+      const safeName = escapeMarkdown(firstName + (lastName ? ' ' + lastName : ''));
+      const safeUsername = username ? '@' + escapeMarkdown(username) : 'Not set';
+      
       const profileMessage = `👤 *Your Profile*\n\n` +
-        `📝 *Name:* ${fullName || 'Not set'}\n` +
-        `🔗 *Username:* ${username ? '@' + username : 'Not set'}\n` +
+        `📝 *Name:* ${safeName || 'Not set'}\n` +
+        `🔗 *Username:* ${safeUsername}\n` +
         `🆔 *Telegram ID:* \`${userId}\`\n\n` +
         `👤 *Gender:* ${user?.gender || '❌ Not set'}\n` +
         `🎂 *Age:* ${user?.age || '❌ Not set'}\n` +
@@ -1050,70 +1109,85 @@ class EnhancedChatController {
   // Show settings
   async showSettings(msg) {
     const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    
-    // Guard: prevent access during active chat
-    const partnerId = await redisClient.get("pair:" + chatId);
-    if (partnerId && partnerId !== chatId.toString()) {
-      return this.bot.sendMessage(chatId, '❌ You cannot access settings during an active chat. Finish the chat first.', {
-        parse_mode: 'Markdown',
-        ...keyboards.getActiveChatKeyboard()
-      });
-    }
-    
-    // Check if user is VIP
-    const isVip = await VipService.isVipActive(userId);
-    // Use cached user data (performance optimization)
-    const user = await UserCacheService.getUser(userId);
-    const currentVipPreference = user?.vipGender || 'Any';
-    const currentAgeMin = user?.vipAgeMin;
-    const currentAgeMax = user?.vipAgeMax;
-    const agePreference = currentAgeMin && currentAgeMax ? `${currentAgeMin} - ${currentAgeMax}` : 'Any';
-    
-    const blurStatus = user?.allowMedia !== false ? '✅ Blur Enabled' : '❌ Blur Disabled';
-    
-    let settingsMessage = `⚙️ *Settings Menu*\n\n` +
-      `Update your profile information:\n` +
-      `• 👤 Change your gender\n` +
-      `• 🎂 Update your age\n` +
-      `• 🖼️ Image Blur: ${blurStatus}\n`;
-    
-    if (isVip) {
-      settingsMessage += `• ⭐ Partner Gender Preference: ${currentVipPreference}\n`;
-      settingsMessage += `• 🎯 Partner Age Preference: ${agePreference}\n`;
-    }
-    
-    settingsMessage += `• 📊 View your statistics\n\n` +
-      `👇 _Choose an option below:_`;
+    try {
+      const userId = msg.from.id;
+      
+      // Guard: prevent access during active chat
+      const partnerId = await redisClient.get("pair:" + chatId);
+      if (partnerId && partnerId !== chatId.toString()) {
+        return this.bot.sendMessage(chatId, '❌ You cannot access settings during an active chat. Finish the chat first.', {
+          parse_mode: 'Markdown',
+          ...keyboards.getActiveChatKeyboard()
+        });
+      }
+      
+      // Check if user is VIP
+      const isVip = await VipService.isVipActive(userId);
+      // Use cached user data (performance optimization)
+      const user = await UserCacheService.getUser(userId);
+      const currentVipPreference = user?.vipGender || 'Any';
+      const currentAgeMin = user?.vipAgeMin;
+      const currentAgeMax = user?.vipAgeMax;
+      const agePreference = currentAgeMin && currentAgeMax ? `${currentAgeMin} - ${currentAgeMax}` : 'Any';
+      
+      const blurStatus = user?.allowMedia !== false ? '✅ Blur Enabled' : '❌ Blur Disabled';
+      
+      let settingsMessage = `⚙️ *Settings Menu*\n\n` +
+        `Update your profile information:\n` +
+        `• 👤 Change your gender\n` +
+        `• 🎂 Update your age\n` +
+        `• 🖼️ Image Blur: ${blurStatus}\n`;
+      
+      if (isVip) {
+        settingsMessage += `• ⭐ Partner Gender Preference: ${currentVipPreference}\n`;
+        settingsMessage += `• 🎯 Partner Age Preference: ${agePreference}\n`;
+      }
+      
+      settingsMessage += `• 📊 View your statistics\n\n` +
+        `👇 _Choose an option below:_`;
 
-    this.bot.sendMessage(chatId, settingsMessage, {
-      parse_mode: "Markdown",
-      ...keyboards.getSettingsKeyboard(isVip)
-    });
+      this.bot.sendMessage(chatId, settingsMessage, {
+        parse_mode: "Markdown",
+        ...keyboards.getSettingsKeyboard(isVip)
+      });
+    } catch (error) {
+      console.error('Error in showSettings:', error);
+      this.bot.sendMessage(chatId, '❌ Error loading settings. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
+    }
   }
 
   // Update gender
   async updateGender(msg) {
     const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    
-    global.userConversations[userId] = "updating_gender";
-    this.bot.sendMessage(chatId, enhancedMessages.genderPrompt, {
-      parse_mode: "Markdown",
-      ...keyboards.genderSelection
-    });
+    try {
+      const userId = msg.from.id;
+      
+      global.userConversations[userId] = "updating_gender";
+      this.bot.sendMessage(chatId, enhancedMessages.genderPrompt, {
+        parse_mode: "Markdown",
+        ...keyboards.genderSelection
+      });
+    } catch (error) {
+      console.error('Error in updateGender:', error);
+      this.bot.sendMessage(chatId, '❌ Error loading settings. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
+    }
   }
 
   // Update age
   async updateAge(msg) {
     const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    
-    global.userConversations[userId] = "updating_age";
-    this.bot.sendMessage(chatId, enhancedMessages.agePrompt, {
-      parse_mode: "Markdown",
-      ...keyboards.removeKeyboard
-    });
+    try {
+      const userId = msg.from.id;
+      
+      global.userConversations[userId] = "updating_age";
+      this.bot.sendMessage(chatId, enhancedMessages.agePrompt, {
+        parse_mode: "Markdown",
+        ...keyboards.removeKeyboard
+      });
+    } catch (error) {
+      console.error('Error in updateAge:', error);
+      this.bot.sendMessage(chatId, '❌ Error loading settings. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
+    }
   }
 
   // Show image blur options (Enable/Disable buttons)
@@ -1207,53 +1281,54 @@ class EnhancedChatController {
   // Show comprehensive help
   async showHelp(msg) {
     const chatId = msg.chat.id;
-    const userId = msg.from.id;
+    try {
+      const userId = msg.from.id;
 
-    const isVip = await VipService.isVipActive(userId);
+      const isVip = await VipService.isVipActive(userId);
 
-    let helpText = `📖 *Help & Commands*\n\n`;
+      let helpText = `📖 *Help & Commands*\n\n`;
 
-    // Basic Commands Section
-    helpText += `*🔹 Basic Commands:*\n`;
-    helpText += `• /start - Start the bot & set up profile\n`;
-    helpText += `• /help - Show this help message\n`;
-    helpText += `• 🔍 Find Partner - Find a chat partner\n`;
-    helpText += `• ❌ Stop Chat - End current chat\n`;
-    helpText += `• ⏭ Next Partner - Skip to next partner\n\n`;
+      // Basic Commands Section
+      helpText += `*🔹 Basic Commands:*\n`;
+      helpText += `• /start - Start the bot & set up profile\n`;
+      helpText += `• /help - Show this help message\n`;
+      helpText += `• 🔍 Find Partner - Find a chat partner\n`;
+      helpText += `• ❌ Stop Chat - End current chat\n`;
+      helpText += `• ⏭ Next Partner - Skip to next partner\n\n`;
 
-    // Profile & Stats Section
-    helpText += `*🔹 Profile & Stats:*\n`;
-    helpText += `• 👤 My Profile - View your profile\n`;
-    helpText += `• 📊 My Stats - View your statistics\n`;
-    helpText += `• ⚙️ Settings - Update your profile\n`;
-    helpText += `• 🆔 My ID - Get your Telegram ID\n\n`;
+      // Profile & Stats Section
+      helpText += `*🔹 Profile & Stats:*\n`;
+      helpText += `• 👤 My Profile - View your profile\n`;
+      helpText += `• 📊 My Stats - View your statistics\n`;
+      helpText += `• ⚙️ Settings - Update your profile\n`;
+      helpText += `• 🆔 My ID - Get your Telegram ID\n\n`;
 
-    // Chat Features Section
-    helpText += `*🔹 Chat Features:*\n`;
-    helpText += `• 🔒 Lock Chat - Lock chat (prevents partner from leaving)\n`;
-    helpText += `• 📷 Send Media - Photos, videos, voice messages\n`;
-    helpText += `• 👍/👎 Rate Partner - Rate after chat ends\n\n`;
+      // Chat Features Section
+      helpText += `*🔹 Chat Features:*\n`;
+      helpText += `• 🔒 Lock Chat - Lock chat (prevents partner from leaving)\n`;
+      helpText += `• 📷 Send Media - Photos, videos, voice messages\n`;
+      helpText += `• 👍/👎 Rate Partner - Rate after chat ends\n\n`;
 
-    // VIP Features Section
-    if (isFeatureEnabled('ENABLE_VIP')) {
-      helpText += `*⭐ VIP Features:*\n`;
-      if (isVip) {
-        helpText += `✅ You have VIP access!\n`;
-      } else {
-        helpText += `🔒 Subscribe to VIP for:\n`;
+      // VIP Features Section
+      if (isFeatureEnabled('ENABLE_VIP')) {
+        helpText += `*⭐ VIP Features:*\n`;
+        if (isVip) {
+          helpText += `✅ You have VIP access!\n`;
+        } else {
+          helpText += `🔒 Subscribe to VIP for:\n`;
+        }
+        helpText += `• 👥 Choose partner gender preference\n`;
+        helpText += `• 🎯 Choose partner age range\n`;
+        helpText += `• ⚡ Priority matching queue\n`;
+        helpText += `• 🔒 More lock chat credits\n\n`;
       }
-      helpText += `• 👥 Choose partner gender preference\n`;
-      helpText += `• 🎯 Choose partner age range\n`;
-      helpText += `• ⚡ Priority matching queue\n`;
-      helpText += `• 🔒 More lock chat credits\n\n`;
-    }
 
-    // Referral Section
-    if (isFeatureEnabled('ENABLE_REFERRALS')) {
-      helpText += `*🎁 Referral Program:*\n`;
-      helpText += `• Invite friends using your referral link\n`;
-      helpText += `• Earn VIP days for each referral\n\n`;
-    }
+      // Referral Section
+      if (isFeatureEnabled('ENABLE_REFERRALS')) {
+        helpText += `*🎁 Referral Program:*\n`;
+        helpText += `• Invite friends using your referral link\n`;
+        helpText += `• Earn VIP days for each referral\n\n`;
+      }
 
     // Safety Section
     helpText += `*🛡️ Safety:*\n`;
@@ -1266,6 +1341,10 @@ class EnhancedChatController {
       parse_mode: 'Markdown',
       ...keyboards.getMainKeyboard()
     });
+    } catch (error) {
+      console.error('Error in showHelp:', error);
+      this.bot.sendMessage(chatId, '❌ Error loading help. Please try again.', keyboards.getMainKeyboard()).catch(() => {});
+    }
   }
 
   // Update daily streak
@@ -1333,17 +1412,18 @@ class EnhancedChatController {
     };
 
     this.bot.on("message", async (msg) => {
-      // Skip if no text or is a command
-      if (!msg.text || msg.text.startsWith("/")) return;
-      const chatId = msg.chat.id;
-      const userId = msg.from.id;
-      const text = msg.text.trim();
-      const normalizedText = text.replace(/\uFE0F/g, ''); // strip variation selectors
+      try {
+        // Skip if no text or is a command
+        if (!msg.text || msg.text.startsWith("/")) return;
+        const chatId = msg.chat.id;
+        const userId = msg.from.id;
+        const text = msg.text.trim();
+        const normalizedText = text.replace(/\uFE0F/g, ''); // strip variation selectors
 
-      // Media privacy toggle (allowed even when not connected)
-      // Match various button formats: emoji, diamond fallback, or plain text
-      const lowerText = normalizedText.toLowerCase();
-      if (normalizedText === '🖼️ Media Privacy' || 
+        // Media privacy toggle (allowed even when not connected)
+        // Match various button formats: emoji, diamond fallback, or plain text
+        const lowerText = normalizedText.toLowerCase();
+        if (normalizedText === '🖼️ Media Privacy' || 
           normalizedText === '🖼 Media Privacy' || 
           normalizedText === '◆ Media Privacy' ||
           lowerText === 'media privacy' ||
@@ -1543,13 +1623,45 @@ class EnhancedChatController {
       const partnerId = await redisClient.get("pair:" + chatId);
       
       if (partnerId && partnerId !== chatId.toString()) {
+        // SPAM DETECTION: Check for channel/group promotions before forwarding
+        try {
+          const allowedChannels = config.CHANNEL_USERNAME ? [config.CHANNEL_USERNAME] : [];
+          const spamCheck = SpamDetectionService.checkMessage(text, { allowedChannels });
+          
+          if (spamCheck.isSpam) {
+            // Handle spam - warn or ban user
+            const result = await SpamDetectionService.handleSpam(userId, spamCheck);
+            
+            if (result.action === 'temp_ban') {
+              // Update user as banned in database
+              await User.update({ banned: true }, { where: { userId } }).catch(() => {});
+              await UserCacheService.invalidate(userId);
+              
+              // Stop their chat
+              await this.stopChatInternal(chatId, null, false, true);
+            }
+            
+            // Send warning/ban message to spam sender (not forwarded to partner)
+            if (result.message) {
+              await this.bot.sendMessage(chatId, result.message, {
+                parse_mode: 'Markdown',
+                ...keyboards.getMainKeyboard()
+              }).catch(() => {});
+            }
+            return; // Don't forward spam message
+          }
+        } catch (spamErr) {
+          console.error('Spam detection error:', spamErr);
+          // Continue with message relay even if spam detection fails
+        }
+        
         try {
           // Update bot tracking for sender
           // Map 'default' to 'bot_0' for compatibility
-    let currentBotId = this.bot.botId || 'bot_0';
-    if (currentBotId === 'default') {
-      currentBotId = 'bot_0';
-    }
+          let currentBotId = this.bot.botId || 'bot_0';
+          if (currentBotId === 'default') {
+            currentBotId = 'bot_0';
+          }
           await BotRouter.setUserBot(userId, currentBotId);
           
           await SessionManager.markChatActive(chatId);
@@ -1612,9 +1724,10 @@ class EnhancedChatController {
       // VIP expiry is enforced at SEARCH TIME only via VipService.isVipActive; do not downgrade or notify mid-chat here.
       // (Preserve active chat benefits until chat end.)
 
-      // Pair users
-      await redisClient.set('pair:' + chatId, String(partnerId));
-      await redisClient.set('pair:' + partnerId, String(chatId));
+      // Pair users with 24 hour TTL to prevent orphan pairs
+      const PAIR_TTL = 86400;
+      await redisClient.setEx('pair:' + chatId, PAIR_TTL, String(partnerId));
+      await redisClient.setEx('pair:' + partnerId, PAIR_TTL, String(chatId));
 
       // mark recent partners for 20 minutes (prevent re-matching too quickly)
       await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
@@ -1643,20 +1756,34 @@ class EnhancedChatController {
       // Send connected message and enhanced partner profile
       // Use cached user data (performance optimization)
       const partnerUser = await UserCacheService.getUser(partnerId);
+      const currentUser = await UserCacheService.getUser(userId);
       
-      // Build enhanced profile message (only show profile, no "Connected" message)
-      let profileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
-      if (partnerUser?.age) {
-        profileMsg += `Age: ${partnerUser.age}\n`;
-      }
-      if (partnerUser?.gender) {
-        const genderEmoji = partnerUser.gender === 'Male' ? '👱‍♂' : 
-                          partnerUser.gender === 'Female' ? '👩' : '🌈';
-        profileMsg += `Gender: ${partnerUser.gender} ${genderEmoji}`;
-      }
-      if (!partnerUser?.age && !partnerUser?.gender) {
-        profileMsg += `Profile details not available`;
-      }
+      // Check VIP status for both users
+      const VipService = require('../services/vipService');
+      const [isUserVip, isPartnerVip] = await Promise.all([
+        VipService.isVipActive(userId),
+        VipService.isVipActive(partnerId)
+      ]);
+      
+      // Build profile message - only VIP users see age/gender
+      const buildProfileMsg = (targetUser, isViewerVip) => {
+        let msg = `⚡️You found a partner🎉\n\n`;
+        if (isViewerVip) {
+          msg += `🕵️‍♂️ *Partner Details:*\n`;
+          if (targetUser?.age) msg += `🎂 Age: ${targetUser.age}\n`;
+          if (targetUser?.gender) {
+            const genderEmoji = targetUser.gender === 'Male' ? '👱‍♂️' : targetUser.gender === 'Female' ? '👩' : '🌈';
+            msg += `👤 Gender: ${targetUser.gender} ${genderEmoji}`;
+          }
+          if (!targetUser?.age && !targetUser?.gender) msg += `📝 Profile details not set`;
+        } else {
+          msg += `🕵️ Partner profile is *hidden*\n\n`;
+          msg += `💎 _Upgrade to VIP to see partner's age & gender!_`;
+        }
+        return msg;
+      };
+      
+      const profileMsg = buildProfileMsg(partnerUser, isUserVip);
 
       // Send via user's own bot
       await BotRouter.sendMessage(chatId, profileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
@@ -1675,21 +1802,8 @@ class EnhancedChatController {
       }
       delete global.searchMessages[partnerId];
       
-      // Send enhanced profile to partner (only show profile, no "Connected" message)
-      // Use cached user data (performance optimization)
-      const currentUser = await UserCacheService.getUser(userId);
-      let partnerProfileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
-      if (currentUser?.age) {
-        partnerProfileMsg += `Age: ${currentUser.age}\n`;
-      }
-      if (currentUser?.gender) {
-        const genderEmoji = currentUser.gender === 'Male' ? '👱‍♂' : 
-                          currentUser.gender === 'Female' ? '👩' : '🌈';
-        partnerProfileMsg += `Gender: ${currentUser.gender} ${genderEmoji}`;
-      }
-      if (!currentUser?.age && !currentUser?.gender) {
-        partnerProfileMsg += `Profile details not available`;
-      }
+      // Send enhanced profile to partner using VIP-gated buildProfileMsg
+      const partnerProfileMsg = buildProfileMsg(currentUser, isPartnerVip);
       
       // Send via partner's own bot
       await BotRouter.sendMessage(partnerId, partnerProfileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
@@ -1707,9 +1821,10 @@ class EnhancedChatController {
           // Found match on retry - recurse with success case
           const partnerId = retryPartner.toString();
           
-          // Pair users
-          await redisClient.set('pair:' + chatId, String(partnerId));
-          await redisClient.set('pair:' + partnerId, String(chatId));
+          // Pair users with 24 hour TTL to prevent orphan pairs
+          const PAIR_TTL = 86400;
+          await redisClient.setEx('pair:' + chatId, PAIR_TTL, String(partnerId));
+          await redisClient.setEx('pair:' + partnerId, PAIR_TTL, String(chatId));
           
           // Mark recent partners
           await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
@@ -1733,16 +1848,34 @@ class EnhancedChatController {
           await this.incrementTotalChats(chatId);
           await this.incrementTotalChats(partnerId);
           
-          // Build and send profile messages
-          const partnerUser = await UserCacheService.getUser(partnerId);
-          let profileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
-          if (partnerUser?.age) profileMsg += `Age: ${partnerUser.age}\n`;
-          if (partnerUser?.gender) {
-            const genderEmoji = partnerUser.gender === 'Male' ? '👱‍♂' : partnerUser.gender === 'Female' ? '👩' : '🌈';
-            profileMsg += `Gender: ${partnerUser.gender} ${genderEmoji}`;
-          }
-          if (!partnerUser?.age && !partnerUser?.gender) profileMsg += `Profile details not available`;
-          await BotRouter.sendMessage(chatId, profileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+          // Get user profiles and VIP status
+          const VipService = require('../services/vipService');
+          const [partnerUser, currentUser, isUserVip, isPartnerVip] = await Promise.all([
+            UserCacheService.getUser(partnerId),
+            UserCacheService.getUser(userId),
+            VipService.isVipActive(userId),
+            VipService.isVipActive(partnerId)
+          ]);
+          
+          // Build profile message - only VIP users see age/gender
+          const buildProfileMsg = (targetUser, isViewerVip) => {
+            let msg = `⚡️You found a partner🎉\n\n`;
+            if (isViewerVip) {
+              msg += `🕵️‍♂️ *Partner Details:*\n`;
+              if (targetUser?.age) msg += `🎂 Age: ${targetUser.age}\n`;
+              if (targetUser?.gender) {
+                const genderEmoji = targetUser.gender === 'Male' ? '👱‍♂️' : targetUser.gender === 'Female' ? '👩' : '🌈';
+                msg += `👤 Gender: ${targetUser.gender} ${genderEmoji}`;
+              }
+              if (!targetUser?.age && !targetUser?.gender) msg += `📝 Profile details not set`;
+            } else {
+              msg += `🕵️ Partner profile is *hidden*\n\n`;
+              msg += `💎 _Upgrade to VIP to see partner's age & gender!_`;
+            }
+            return msg;
+          };
+          
+          await BotRouter.sendMessage(chatId, buildProfileMsg(partnerUser, isUserVip), { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
           
           // Partner's search cleanup
           if (global.searchIntervals[partnerId]) {
@@ -1756,15 +1889,7 @@ class EnhancedChatController {
           }
           delete global.searchMessages[partnerId];
           
-          const currentUser = await UserCacheService.getUser(userId);
-          let partnerProfileMsg = `⚡️You found a partner🎉\n\n🕵️‍♂️ Profile Details:\n`;
-          if (currentUser?.age) partnerProfileMsg += `Age: ${currentUser.age}\n`;
-          if (currentUser?.gender) {
-            const genderEmoji = currentUser.gender === 'Male' ? '👱‍♂' : currentUser.gender === 'Female' ? '👩' : '🌈';
-            partnerProfileMsg += `Gender: ${currentUser.gender} ${genderEmoji}`;
-          }
-          if (!currentUser?.age && !currentUser?.gender) partnerProfileMsg += `Profile details not available`;
-          await BotRouter.sendMessage(partnerId, partnerProfileMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+          await BotRouter.sendMessage(partnerId, buildProfileMsg(currentUser, isPartnerVip), { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
           
           return; // Match found on retry, done
         }
@@ -1888,85 +2013,60 @@ class EnhancedChatController {
   // skipCallerNotification: if true, don't send messages to the caller (used when transitioning to new partner search)
   async stopChatInternal(chatId, customMessage, notifyAdmin = false, skipCallerNotification = false) {
     try {
-      // Block stop/skip if there is any active lock and caller is not lock owner
+      // OPTIMIZED: Get partner ID and check locks in parallel where possible
       const partnerId = await redisClient.get("pair:" + chatId);
 
-      // If lock exists on either side, pick the locked room
-      let lockedRoom = null;
-      if (await LockChatService.isChatLocked(chatId)) lockedRoom = String(chatId);
-      else if (partnerId && await LockChatService.isChatLocked(partnerId)) lockedRoom = String(partnerId);
-
-      if (lockedRoom) {
-        const owners = await LockChatService.getLockOwners(lockedRoom);
-        const ownerId = owners && owners.length > 0 ? owners[0] : null;
-        // debug: ensure owner allowed
-        console.log('DEBUG stopChatInternal: lockedRoom=', lockedRoom, 'ownerId=', ownerId, 'caller=', chatId);
-        if (String(chatId) !== String(ownerId)) {
-          // Record lock abuse observationally (do not change flow)
-          try { await AbuseService.recordLockAbuse({ chatId: lockedRoom, offenderId: chatId, ownerId: ownerId, botId: config.BOT_ID || 'default' }); } catch (_) {}
-
-          return this.bot.sendMessage(chatId, '🔒 This chat is locked by your partner.', { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
-        }
-        // caller is owner -> allow stop and cleanup locks
-      }
-
-      if (partnerId && partnerId !== chatId.toString()) {
-        // Force clear old keyboard first (prevent client-side caching)
-        await BotRouter.sendMessage(partnerId, '👋', keyboards.getMainKeyboardForceClear()).catch(() => {});
-        
-        // Get dynamic partner left message
-        const partnerLeftMsg = await MessagesService.getPartnerLeft() || enhancedMessages.partnerLeft;
-        // Send main keyboard to reset UI state
-        await BotRouter.sendMessage(partnerId, partnerLeftMsg, {
-          parse_mode: 'Markdown',
-          ...keyboards.getMainKeyboard()
-        });
-        
-        // Store pending rating for partner (so they can rate the user who left)
-        stateManager.setPendingRating(partnerId, chatId);
-        
-        // Send new rating keyboard (thumbs up/down, skip, report)
-        await BotRouter.sendMessage(partnerId, 'How was your chat?', {
-          reply_markup: ChatRatingService.getRatingKeyboard()
-        }).catch(() => {});
-        
-        await redisClient.del("pair:" + partnerId);
-      }
-
-      // Clean locks on chat end
-      // Also cleanup any locks owned by the caller (owner may own locks for other chat rooms)
-      try {
-        const activeLocks = await LockChatService.getActiveLocks();
-        const ownerLocks = (activeLocks || []).filter(l => String(l.userId) === String(chatId));
-        for (const l of ownerLocks) {
-          await LockChatService.cleanupLocks(l.chatId);
-        }
-      } catch (err) {
-        // ignore cleanup errors
-        console.error('Error cleaning owner locks:', err);
-      }
-
-      // Observational: record disconnect abuse for caller (duringLock true if any lock exists on either side)
-      // OPTIMIZED: Parallelize lock checks instead of sequential
-      try {
+      // Quick lock check - only if lock feature enabled
+      if (isFeatureEnabled('ENABLE_LOCK_CHAT')) {
+        // Check locks in parallel
         const [chatLocked, partnerLocked] = await Promise.all([
           LockChatService.isChatLocked(chatId),
           partnerId ? LockChatService.isChatLocked(partnerId) : Promise.resolve(false)
         ]);
-        const lockedNow = chatLocked || partnerLocked;
-        try { await AbuseService.recordDisconnectAbuse({ userId: chatId, chatId, botId: config.BOT_ID || 'default', duringLock: !!lockedNow }); } catch (_) {}
-      } catch (e) {
-        // swallow - do not affect chat flow
+        
+        const lockedRoom = chatLocked ? String(chatId) : (partnerLocked ? String(partnerId) : null);
+        
+        if (lockedRoom) {
+          const owners = await LockChatService.getLockOwners(lockedRoom);
+          const ownerId = owners && owners.length > 0 ? owners[0] : null;
+          if (String(chatId) !== String(ownerId)) {
+            // Not owner - can't stop. Get configurable message
+            AbuseService.recordLockAbuse({ chatId: lockedRoom, offenderId: chatId, ownerId, botId: config.BOT_ID || 'default' }).catch(() => {});
+            const lockedMsg = await MessagesService.getChatLocked() || '🔒 This chat is locked by your partner.';
+            return this.bot.sendMessage(chatId, lockedMsg, { parse_mode: 'Markdown', ...keyboards.getActiveChatKeyboard() });
+          }
+          // Owner is stopping - they can do so, lock will be cleaned up below
+        }
       }
 
-      // Guarantee cleanup of pair state
-      await redisClient.del("pair:" + chatId).catch(err => console.error('Error deleting pair:', err));
+      // PARALLEL: Delete pair keys and notify partner simultaneously
+      const cleanupPromises = [
+        redisClient.del("pair:" + chatId).catch(() => {})
+      ];
       
-      // remove from per-bot queues
+      if (partnerId && partnerId !== chatId.toString()) {
+        cleanupPromises.push(redisClient.del("pair:" + partnerId).catch(() => {}));
+        
+        // Notify partner in background (don't await)
+        this._notifyPartnerLeft(partnerId, chatId).catch(() => {});
+      }
+      
+      // Execute cleanup in parallel
+      await Promise.all(cleanupPromises);
+
+      // BACKGROUND: Lock cleanup and abuse recording (fire and forget)
+      if (isFeatureEnabled('ENABLE_LOCK_CHAT')) {
+        this._cleanupLocksBackground(chatId).catch(() => {});
+      }
+
+      // Remove from queues in parallel
       const keys = require('../utils/redisKeys');
       const botId = require('../config/config').BOT_ID || 'default';
-      await redisClient.lRem(keys.QUEUE_VIP_KEY(botId), 0, chatId.toString()).catch(() => {});
-      await redisClient.lRem(keys.QUEUE_GENERAL_KEY(botId), 0, chatId.toString()).catch(() => {});
+      Promise.all([
+        redisClient.lRem(keys.QUEUE_VIP_KEY(botId), 0, chatId.toString()),
+        redisClient.lRem(keys.QUEUE_GENERAL_KEY(botId), 0, chatId.toString()),
+        redisClient.lRem(keys.QUEUE_FREE_KEY(botId), 0, chatId.toString())
+      ]).catch(() => {});
 
       // Only send messages to caller if not skipping (e.g., when transitioning to new partner search)
       if (!skipCallerNotification) {
@@ -2121,8 +2221,8 @@ class EnhancedChatController {
         return;
       }
 
-      // Activate lock
-      await LockChatService.activateLockFromCredits(chatId, userId, partnerId, duration);
+      // Activate lock - pass botId so expiry notification goes to correct bot
+      await LockChatService.activateLockFromCredits(chatId, userId, partnerId, duration, { botId: this.bot.botId });
 
       await this.bot.answerCallbackQuery(cb.id, { text: `🔒 Locked for ${duration} min` }).catch(() => {});
       await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
@@ -2143,6 +2243,53 @@ class EnhancedChatController {
       const errorMsg = error.message.includes('Insufficient') ? 'Not enough lock credits' : 'Failed to lock chat';
       await this.bot.answerCallbackQuery(cb.id, { text: errorMsg }).catch(() => {});
       await this.bot.deleteMessage(chatId, cb.message.message_id).catch(() => {});
+    }
+  }
+
+  /**
+   * Fire-and-forget helper to notify partner that user left
+   * @param {number} partnerId - Partner's telegram ID
+   * @param {number} chatId - Original user's chat ID (for logging only)
+   */
+  async _notifyPartnerLeft(partnerId, chatId) {
+    try {
+      // Clear any existing keyboard first
+      await BotRouter.sendMessage(partnerId, '🚫 *Your partner left the chat*', {
+        parse_mode: 'Markdown',
+        reply_markup: { remove_keyboard: true }
+      });
+
+      // Send rating prompt
+      const ChatRatingService = require('../services/chatRatingService');
+      const ratingKeyboard = ChatRatingService.getRatingKeyboard();
+      await BotRouter.sendMessage(partnerId, '💭 How was this chat?', {
+        reply_markup: ratingKeyboard
+      });
+    } catch (error) {
+      // Silent fail - partner may have blocked bot or deleted account
+      console.debug(`[_notifyPartnerLeft] Failed to notify partner ${partnerId}:`, error.message);
+    }
+  }
+
+  /**
+   * Fire-and-forget helper to cleanup locks in background
+   * @param {number} chatId - The user's chat ID
+   */
+  async _cleanupLocksBackground(chatId) {
+    try {
+      const { Op } = require('sequelize');
+      const LockHistory = require('../models/lockChatModel');
+      
+      // Find and delete any active locks where this user is the locker
+      await LockHistory.destroy({
+        where: {
+          userId: chatId,
+          expiresAt: { [Op.gt]: new Date() }
+        }
+      });
+    } catch (error) {
+      // Silent fail - locks will eventually expire anyway
+      console.debug(`[_cleanupLocksBackground] Error cleaning locks for ${chatId}:`, error.message);
     }
   }
 }

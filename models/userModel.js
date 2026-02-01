@@ -12,6 +12,18 @@ const User = sequelize.define("User", {
     type: DataTypes.BIGINT,
     allowNull: false,
   },
+  username: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
+  firstName: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
+  lastName: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
   botId: {
     // Which bot the user joined from (for federation tracking)
     // e.g., 'bot_0', 'bot_1', 'default'

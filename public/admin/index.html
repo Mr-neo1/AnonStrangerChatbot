@@ -46,6 +46,8 @@
     .input-field { width: 100%; padding: 10px 14px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; color: white; outline: none; transition: border-color 0.2s; }
     .input-field:focus { border-color: #6366f1; }
     .table-row:hover { background: #1e293b; }
+    button { cursor: pointer; user-select: none; }
+    button:active { transform: scale(0.98); }
   </style>
 </head>
 <body class="bg-dark-950 text-dark-100 min-h-screen">
@@ -119,6 +121,7 @@
       
       <nav class="p-2 space-y-0.5 text-sm">
         <button onclick="switchTab('overview')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="overview">📊 Overview</button>
+        <button onclick="switchTab('live')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="live">🔴 Live Users</button>
         <button onclick="switchTab('analytics')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="analytics">📈 Analytics</button>
         <button onclick="switchTab('users')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="users">👥 Users</button>
         <button onclick="switchTab('bots')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="bots">🤖 Bots</button>
@@ -286,6 +289,57 @@
                 <button onclick="closeQuickMessageModal()" class="flex-1 bg-dark-700 hover:bg-dark-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
                 <button onclick="sendQuickMessage()" class="flex-1 btn-primary px-4 py-2 rounded-lg text-sm text-white">Send Message</button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Users Tab -->
+        <section id="tab-live" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-4">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="font-semibold text-white">🔴 Live Users</h3>
+                <p class="text-sm text-dark-400">Users currently chatting or searching</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-dark-400">Auto-refresh</span>
+                <button type="button" onclick="toggleLiveRefresh()" id="liveRefreshBtn" class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm cursor-pointer">ON</button>
+                <button type="button" onclick="loadLiveUsers(); return false;" id="refreshLiveBtn" class="bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded text-sm cursor-pointer text-white font-medium">🔄 Refresh</button>
+              </div>
+            </div>
+            
+            <div class="grid md:grid-cols-2 gap-4 mb-4">
+              <div class="bg-dark-800 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-dark-400">💬 Chatting</span>
+                  <span id="live-chatting-count" class="text-xl font-bold text-green-400">0</span>
+                </div>
+              </div>
+              <div class="bg-dark-800 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-dark-400">🔍 Searching</span>
+                  <span id="live-searching-count" class="text-xl font-bold text-yellow-400">0</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-dark-400 border-b border-dark-800">
+                    <th class="pb-2 px-2">User ID</th>
+                    <th class="pb-2 px-2">Username</th>
+                    <th class="pb-2 px-2">Status</th>
+                    <th class="pb-2 px-2">Partner ID</th>
+                    <th class="pb-2 px-2">Gender</th>
+                    <th class="pb-2 px-2">Age</th>
+                    <th class="pb-2 px-2">Bot</th>
+                  </tr>
+                </thead>
+                <tbody id="liveUsersTable" class="divide-y divide-dark-800">
+                  <tr><td colspan="7" class="py-4 text-center text-dark-400">Loading...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -740,6 +794,14 @@
     let pollingInterval = null;
     let botMessages = {};
 
+    // XSS Prevention - escape HTML entities
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
     // Toast notification
     function toast(msg, type = 'info') {
       const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500', warning: 'bg-yellow-500' };
@@ -904,7 +966,7 @@
       document.getElementById(`tab-${tab}`).classList.remove('hidden');
       document.querySelector(`[data-tab="${tab}"]`)?.classList.add('bg-primary-600', 'text-white');
       
-      const titles = { overview: 'Overview', analytics: 'Analytics', users: 'User Management', bots: 'Bot Instances', vip: 'VIP Plans', lockchat: 'Lock Chat', broadcast: 'Broadcast', messages: 'Bot Messages', config: 'Configuration', export: 'Export Data', audit: 'Audit Logs', maintenance: 'Maintenance' };
+      const titles = { overview: 'Overview', live: 'Live Users', analytics: 'Analytics', users: 'User Management', bots: 'Bot Instances', vip: 'VIP Plans', lockchat: 'Lock Chat', broadcast: 'Broadcast', messages: 'Bot Messages', config: 'Configuration', export: 'Export Data', audit: 'Audit Logs', maintenance: 'Maintenance' };
       document.getElementById('pageTitle').textContent = titles[tab] || tab;
       
       if (tab === 'users') loadUsers();
@@ -916,6 +978,7 @@
       if (tab === 'analytics') initAnalytics();
       if (tab === 'audit') loadAuditLogs();
       if (tab === 'maintenance') loadMaintenanceStatus();
+      if (tab === 'live') loadLiveUsers();
     }
 
     // Stats
@@ -932,6 +995,87 @@
       } catch (err) {}
     }
 
+    // Live Users
+    let liveRefreshInterval = null;
+    let liveRefreshEnabled = true;
+    
+    async function loadLiveUsers() {
+      try {
+        const data = await api('/active-users');
+        const tbody = document.getElementById('liveUsersTable');
+        
+        // Count by status
+        const chatting = data.activeUsers.filter(u => u.status === 'chatting').length;
+        const searching = data.activeUsers.filter(u => u.status === 'searching').length;
+        
+        document.getElementById('live-chatting-count').textContent = Math.floor(chatting / 2); // Pairs
+        document.getElementById('live-searching-count').textContent = searching;
+        
+        if (data.activeUsers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-dark-400">No active users right now</td></tr>';
+          return;
+        }
+        
+        tbody.innerHTML = data.activeUsers.map(u => {
+          const safeUsername = escapeHtml(u.username);
+          const safePartnerUsername = escapeHtml(u.partnerUsername);
+          const safeFirstName = escapeHtml(u.firstName);
+          const safePartnerFirstName = escapeHtml(u.partnerFirstName);
+          
+          const partnerDisplay = u.partnerId 
+            ? (u.partnerUsername 
+                ? `<a href="https://t.me/${safePartnerUsername}" target="_blank" class="text-blue-400 hover:underline">@${safePartnerUsername}</a> <span class="text-dark-500 text-xs">(${escapeHtml(u.partnerId)})</span>`
+                : `${safePartnerFirstName || escapeHtml(u.partnerId)}`)
+            : '-';
+          return `
+          <tr class="hover:bg-dark-800/50">
+            <td class="px-2 py-2 font-mono text-xs">${escapeHtml(u.odUserId || u.userId) || '-'}</td>
+            <td class="px-2 py-2">${safeUsername ? `<a href="https://t.me/${safeUsername}" target="_blank" class="text-blue-400 hover:underline">@${safeUsername}</a>` : (safeFirstName || '-')}</td>
+            <td class="px-2 py-2">${u.status === 'chatting' ? '<span class="text-green-400">💬 Chatting</span>' : '<span class="text-yellow-400">🔍 Searching</span>'}</td>
+            <td class="px-2 py-2">${partnerDisplay}</td>
+            <td class="px-2 py-2">${u.gender === 'male' || u.gender === 'Male' ? '👨' : u.gender === 'female' || u.gender === 'Female' ? '👩' : '-'}</td>
+            <td class="px-2 py-2">${u.age || '-'}</td>
+            <td class="px-2 py-2 text-xs">${escapeHtml(u.botId) || '-'}</td>
+          </tr>`;
+        }).join('');
+      } catch (err) {
+        console.error('Error loading live users:', err);
+      }
+    }
+    
+    function toggleLiveRefresh() {
+      liveRefreshEnabled = !liveRefreshEnabled;
+      const btn = document.getElementById('liveRefreshBtn');
+      if (liveRefreshEnabled) {
+        btn.textContent = 'ON';
+        btn.className = 'bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm';
+        startLiveRefresh();
+      } else {
+        btn.textContent = 'OFF';
+        btn.className = 'bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm';
+        stopLiveRefresh();
+      }
+    }
+    
+    function startLiveRefresh() {
+      if (liveRefreshInterval) clearInterval(liveRefreshInterval);
+      liveRefreshInterval = setInterval(() => {
+        if (document.getElementById('tab-live') && !document.getElementById('tab-live').classList.contains('hidden')) {
+          loadLiveUsers();
+        }
+      }, 5000); // Refresh every 5 seconds
+    }
+    
+    function stopLiveRefresh() {
+      if (liveRefreshInterval) {
+        clearInterval(liveRefreshInterval);
+        liveRefreshInterval = null;
+      }
+    }
+    
+    // Start live refresh on load
+    startLiveRefresh();
+
     // Users
     async function loadUsers(page = 1) {
       currentUsersPage = Math.max(1, page);
@@ -943,7 +1087,7 @@
         tbody.innerHTML = data.users.map(u => `
           <tr class="table-row">
             <td class="px-4 py-3 font-mono text-xs">${u.userId}</td>
-            <td class="px-4 py-3">${u.username || '-'}</td>
+            <td class="px-4 py-3">${u.username ? `<a href="https://t.me/${u.username}" target="_blank" class="text-blue-400 hover:underline">@${u.username}</a>` : (u.firstName || '-')}</td>
             <td class="px-4 py-3">${u.gender || '-'} / ${u.age || '-'}</td>
             <td class="px-4 py-3">${u.isVip ? '<span class="text-yellow-400">⭐ VIP</span>' : '-'}</td>
             <td class="px-4 py-3">${u.banned ? '<span class="text-red-400">Banned</span>' : '<span class="text-green-400">Active</span>'}</td>

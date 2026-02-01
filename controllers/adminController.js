@@ -4,6 +4,7 @@ const { isFeatureEnabled } = require('../config/featureFlags');
 const LockChatService = require('../services/lockChatService');
 const VipService = require('../services/vipService');
 const { Payment } = require('../services/paymentService') || {};
+const { scanKeys } = require('../utils/redisScanHelper');
 
 // Admin notifier registration (allows services to send admin alerts without creating bot instances)
 let adminNotifier = null;
@@ -86,7 +87,7 @@ class AdminController {
       if (!this.isAdmin(msg.chat.id)) return this.bot.sendMessage(msg.chat.id, 'Admin commands are restricted');
       try {
         const totalUsers = await User.count();
-        const vipKeys = await (require('../database/redisClient').redisClient.keys)('user:vip:*');
+        const vipKeys = await scanKeys('user:vip:*');
         const vipCount = vipKeys ? vipKeys.length : 0;
         const reply = `📊 Stats\n\nTotal users: ${totalUsers}\nVIP users: ${vipCount}`;
         this.bot.sendMessage(msg.chat.id, reply);
@@ -147,7 +148,7 @@ class AdminController {
       if (!this.isAdmin(msg.chat.id)) return this.bot.sendMessage(msg.chat.id, 'Admin commands are restricted');
       try {
         // simple scan of redis keys for speed
-        const keys = await (require('../database/redisClient').redisClient.keys)('user:vip:*');
+        const keys = await scanKeys('user:vip:*');
         const users = keys.map(k => k.split(':')[2]);
         this.bot.sendMessage(msg.chat.id, `⭐ VIP users:\n${users.join('\n')}`);
       } catch (err) {

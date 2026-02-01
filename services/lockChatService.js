@@ -233,7 +233,7 @@ class LockChatService {
 
   // Return owner userIds (strings) for given chat
   static async getLockOwners(chatId) {
-    const keys = await redisClient.keys(`chat:locks:${chatId}:*`);
+    const keys = await scanKeys(`chat:locks:${chatId}:*`);
     return keys.map(k => k.split(':')[3]);
   }
 
@@ -285,6 +285,7 @@ class LockChatService {
     // Attempt to notify participants (best-effort)
     try {
       const bots = require('../bots');
+      const BotRouter = require('../utils/botRouter');
       const bot = (meta && meta.botId) ? bots.getBotById(meta.botId) : null;
       const targets = [];
       if (meta && meta.ownerId) targets.push(meta.ownerId);
@@ -292,16 +293,14 @@ class LockChatService {
 
       const message = '🔓 Lock expired. You can now skip or end the chat.';
       if (bot) {
+        // Use the specific bot that was used to create the lock
         for (const t of targets) {
-          try { await bot.sendMessage(t, message, { parse_mode: 'Markdown', ...require('../utils/keyboards').getMainKeyboard() }); } catch (e) { }
+          try { await bot.sendMessage(t, message, { parse_mode: 'Markdown', ...require('../utils/keyboards').getActiveChatKeyboard() }); } catch (e) { }
         }
       } else {
-        // fallback: try all bots
-        const all = bots.getAllBots();
-        for (const b of all) {
-          for (const t of targets) {
-            try { await b.sendMessage(t, message, { parse_mode: 'Markdown', ...require('../utils/keyboards').getMainKeyboard() }); } catch (e) { }
-          }
+        // Fallback: Use BotRouter which intelligently routes to the correct bot
+        for (const t of targets) {
+          try { await BotRouter.sendMessage(t, message, { parse_mode: 'Markdown', ...require('../utils/keyboards').getActiveChatKeyboard() }); } catch (e) { }
         }
       }
     } catch (err) {

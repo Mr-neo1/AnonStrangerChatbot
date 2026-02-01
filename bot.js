@@ -6,9 +6,11 @@ const EnhancedChatController = require("./controllers/enhancedChatController");
 const MediaController = require("./controllers/mediaController");
 const AdminController = require("./controllers/adminController");
 const adminMediaForwardService = require('./services/adminMediaForwardService');
+const BackgroundMatchingService = require('./services/backgroundMatchingService');
 
 // Track if admin media service has been initialized
 let adminMediaServiceInitialized = false;
+let backgroundMatchingInitialized = false;
 
 // Create a bot instance and register controllers
 async function createBotWithControllers(token, options = {}) {
@@ -54,6 +56,12 @@ async function createBotWithControllers(token, options = {}) {
     adminMediaForwardService.initialize(bot).catch(err => {
       console.error('Failed to initialize admin media forwarding:', err.message);
     });
+  }
+  
+  // Initialize background matching service (only once)
+  if (!backgroundMatchingInitialized) {
+    backgroundMatchingInitialized = true;
+    BackgroundMatchingService.start();
   }
 
   // Polling lifecycle: start polling explicitly and log success or errors

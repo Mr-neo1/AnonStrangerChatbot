@@ -4,6 +4,7 @@
 
 const { Server } = require('socket.io');
 const { redisClient } = require('../database/redisClient');
+const { scanKeys } = require('../utils/redisScanHelper');
 const TelegramLoginService = require('./telegramLoginService');
 const User = require('../models/userModel');
 const VipSubscription = require('../models/vipSubscriptionModel');
@@ -143,7 +144,7 @@ class WebSocketService {
       let activeChats = 0;
       let activeUserIds = [];
       try {
-        const keys = await redisClient.keys('pair:*');
+        const keys = await scanKeys('pair:*');
         activeChats = Math.floor((keys?.length || 0) / 2);
         activeUserIds = keys.map(k => k.replace('pair:', ''));
       } catch (e) {}
