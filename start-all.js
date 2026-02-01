@@ -33,40 +33,40 @@ const { registerShutdownHandlers, onShutdown } = require('./utils/shutdownHandle
 
 async function startAll() {
   try {
-    logger.info('Starting Telegram bot and admin dashboard...');
+    console.log('🚀 Starting Telegram bot and admin dashboard...');
     
     // 1. Start admin dashboard server first
     const adminPort = process.env.ADMIN_PANEL_PORT || 4000;
-    logger.info('Starting admin dashboard on port ' + adminPort);
+    console.log('📊 Starting admin dashboard on port ' + adminPort);
     const { startAdminServer, stopAdminServer } = require('./admin-server');
     await startAdminServer();
     
     // Register admin server for graceful shutdown
     onShutdown(async () => {
-      logger.info('Stopping admin server...');
+      console.log('Stopping admin server...');
       await stopAdminServer();
     });
     
     // 2. Start Telegram bot (multi-bot support)
-    logger.info('Starting Telegram bot...');
+    console.log('🤖 Starting Telegram bots...');
     const { initBots, startHealthCheck, stopAllBots } = require('./bots');
     await initBots();
     startHealthCheck();
     
     // Register bots for graceful shutdown
     onShutdown(async () => {
-      logger.info('Stopping Telegram bots...');
+      console.log('Stopping Telegram bots...');
       await stopAllBots();
     });
     
     // 3. Register centralized shutdown handlers
     registerShutdownHandlers();
     
-    logger.info('✅ All services started successfully');
-    logger.info('Admin dashboard: http://localhost:' + adminPort + '/admin');
+    console.log('✅ All services started successfully');
+    console.log('📊 Admin dashboard: http://localhost:' + adminPort + '/admin');
     
   } catch (error) {
-    logger.error('Failed to start services:', error);
+    console.error('❌ Failed to start services:', error);
     process.exit(1);
   }
 }
