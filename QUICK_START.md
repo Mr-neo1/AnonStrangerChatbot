@@ -1,52 +1,84 @@
 # ⚡ Quick Start Guide
 
-## 🎯 Get Started in 5 Minutes
+## 🎯 Get Running in 3 Steps
 
-### Prerequisites ✅
-- ✅ Node.js 18.20.8 (installed via nvm)
-- ✅ npm 10.8.2 (installed)
-- ✅ Dependencies installed
+### Prerequisites
+- Node.js 18+ (tested with 22.21.1)
+- PostgreSQL database
+- Redis server
 
-### Step 1: Load Node.js (if needed)
+---
 
-If you open a new terminal, nvm will auto-load. If not:
-```bash
-export NVM_DIR="$HOME/.config/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-```
-
-### Step 2: Configure Environment
+## Step 1: Install Dependencies
 
 ```bash
-# Create .env file
-cp .env.example .env
-
-# Edit with your settings
-nano .env
+npm install
 ```
 
-**Minimum required:**
-```env
-BOT_TOKEN=your_telegram_bot_token
-ADMIN_TELEGRAM_IDS=your_telegram_user_id
-```
+---
 
-**For testing (SQLite + Memory Redis):**
-```env
-BOT_TOKEN=your_token
-ADMIN_TELEGRAM_IDS=your_id
-SQLITE_DB_PATH=./chatbot.db
-REDIS_URL=memory://
-```
+## Step 2: Configure Environment
 
-**Admin Panel (optional):**
+The `.env` file is already included. Update these values:
+
 ```env
-ADMIN_PANEL_PORT=4000
+# Your Telegram Bot Tokens (comma-separated for multiple bots)
+BOT_TOKENS=token1,token2,token3,token4,token5
+
+# PostgreSQL connection (update host/password)
+POSTGRES_URI=postgresql://postgres:yourpassword@localhost:5432/chatbot_production
+
+# Redis connection (update host)
+REDIS_URL=redis://localhost:6379
+
+# Admin Telegram IDs (your Telegram user ID)
+ADMIN_TELEGRAM_IDS=your_telegram_id
+ADMIN_CONTROL_CHAT_ID=your_admin_group_id
+
+# Admin Panel credentials
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
+ADMIN_PANEL_PORT=4000
 ```
 
-### Step 3: Initialize Database
+---
+
+## Step 3: Start the Bot
+
+```bash
+node start-all.js
+```
+
+---
+
+## Access Points
+
+| Service | URL |
+|---------|-----|
+| Admin Panel | http://YOUR_IP:4000/admin |
+| Health Check | http://YOUR_IP:4000/health |
+
+---
+
+## Database Setup (First Time Only)
+
+Create the PostgreSQL database:
+
+```sql
+CREATE DATABASE chatbot_production;
+```
+
+The bot will auto-create all tables on first run.
+
+---
+
+## That's it! 🎉
+
+The bot will:
+1. ✅ Connect to PostgreSQL
+2. ✅ Connect to Redis  
+3. ✅ Start all Telegram bots
+4. ✅ Start admin panel on port 4000
 
 ```bash
 npm run init-schema
