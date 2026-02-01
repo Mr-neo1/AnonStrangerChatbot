@@ -4,13 +4,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment variables
-.env
-.env.local
-.env.development
-.env.test
-.env.production.local
-.env.production
+# PRIVATE REPO - Include .env and user data
+# Environment variables - COMMENTED OUT for private repo
+# .env
+# .env.local
+# .env.development
+# .env.test
+# .env.production.local
+# .env.production
 
 # Database files
 *.db
@@ -58,8 +59,8 @@ jspm_packages/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
-.env
+# dotenv environment variables file - INCLUDED for private repo
+# .env
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -106,19 +107,32 @@ Thumbs.db
 tmp/
 temp/
 
-# User data exports (contains PII)
-users_export.json
-*_export.json
+# User data exports - INCLUDED for private repo
+# users_export.json
+# *_export.json
 
-# Deploy secrets (keep .env.example for reference)
-deploy/.env.production
-deploy/.env.local
+# Deploy secrets - INCLUDED for private repo
+# deploy/.env.production
+# deploy/.env.local
 !deploy/.env.example
 
 # Lock files
 *.lock
 .bot.lock
 
+# Export scripts - INCLUDED for private repo
+# export_users.sh
+
 # Backup files
 *.bak
 chatbot.db.bak
+
+# Temporary helper scripts - Keep for private repo
+# check-db.js
+# check-sqlite.js
+# check-botid.js
+# check-tokens.js
+# fix-botid.js
+# import-users.js
+# update-all-users-bot.js
+# sync-tokens.js
