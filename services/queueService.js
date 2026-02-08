@@ -69,7 +69,7 @@ async function processBroadcast(data) {
   }
   
   // Build user query based on audience
-  const where = {};
+  const where = { banned: false }; // Exclude banned users
   
   // Filter by specific bot if provided
   if (botId && botId !== 'all') {
@@ -105,10 +105,12 @@ async function processBroadcast(data) {
   }
   
   // Get users (paginated to avoid memory issues)
-  const limit = 100;
+  const batchSize = 20; // Reduced from 100 for better rate limiting
   let offset = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  let blockedUsers = [];
+  let retryQueue = [];
   
   // Decode media buffer if present
   let mediaBuffer = null;
@@ -119,24 +121,11 @@ async function processBroadcast(data) {
       console.error('Failed to decode media buffer:', e.message);
     }
   }
-  
-  while (true) {
-    const users = await User.findAll({
-      where,
-      limit,
-      offset,
-      attributes: ['userId', 'telegramId', 'botId']
-    });
-    
-    if (users.length === 0) break;
-    
-    // Send messages in parallel (batched)
-    const sendPromises = users.map(async (user) => {
+
+  // Helper function to send message with retry
+  async function sendWithRetry(user, bot, maxRetries = 2) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        // Get bot for this user
-        const bot = bots.find(b => b._meta?.botId === user.botId) || bots[0];
-        
-        // Send media with caption if present, otherwise just text
         if (mediaBuffer && data.media) {
           const caption = message ? `📢 ${message}` : '';
           const fileOptions = { 
@@ -154,27 +143,89 @@ async function processBroadcast(data) {
         } else {
           await bot.sendMessage(user.telegramId, `📢 ${message}`);
         }
-        
         return { success: true };
       } catch (err) {
-        return { success: false, error: err.message };
+        const errMsg = err.message || String(err);
+        
+        // Permanent failures - don't retry
+        if (errMsg.includes('bot was blocked') || 
+            errMsg.includes('user is deactivated') ||
+            errMsg.includes('chat not found') ||
+            errMsg.includes('USER_DELETED') ||
+            errMsg.includes('PEER_ID_INVALID')) {
+          blockedUsers.push(user.userId);
+          return { success: false, error: 'blocked', permanent: true };
+        }
+        
+        // Rate limit - wait and retry
+        if (errMsg.includes('Too Many Requests') || errMsg.includes('429')) {
+          const retryAfter = err.response?.parameters?.retry_after || 1;
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+            continue;
+          }
+        }
+        
+        // Other errors - retry with backoff
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 500));
+          continue;
+        }
+        
+        return { success: false, error: errMsg };
       }
+    }
+  }
+  
+  while (true) {
+    const users = await User.findAll({
+      where,
+      limit: batchSize,
+      offset,
+      attributes: ['userId', 'telegramId', 'botId']
     });
     
-    const results = await Promise.all(sendPromises);
-    totalSent += results.filter(r => r.success).length;
-    totalFailed += results.filter(r => !r.success).length;
+    if (users.length === 0) break;
     
-    offset += limit;
+    // Send messages sequentially with delays (better rate limit handling)
+    for (const user of users) {
+      const bot = bots.find(b => b._meta?.botId === user.botId) || bots[0];
+      const result = await sendWithRetry(user, bot);
+      
+      if (result.success) {
+        totalSent++;
+      } else {
+        totalFailed++;
+      }
+      
+      // Delay between each message to respect Telegram rate limits
+      // 30 messages/second = ~35ms per message, use 50ms to be safe
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
     
-    // Small delay to avoid rate limits
-    if (users.length === limit) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+    offset += batchSize;
+    
+    // Progress log every 100 users
+    if ((offset % 100) === 0) {
+      console.log(`📊 Broadcast progress: ${totalSent} sent, ${totalFailed} failed (${offset} processed)`);
+    }
+  }
+  
+  // Mark blocked users as banned in database
+  if (blockedUsers.length > 0) {
+    try {
+      await User.update(
+        { banned: true },
+        { where: { userId: { [Op.in]: blockedUsers } } }
+      );
+      console.log(`🚫 Marked ${blockedUsers.length} blocked/deleted users as banned`);
+    } catch (err) {
+      console.error('Failed to mark blocked users:', err.message);
     }
   }
   
   const mediaInfo = data.media ? ` (with ${data.media.type})` : '';
-  console.log(`📢 Broadcast completed${mediaInfo}: ${totalSent} sent, ${totalFailed} failed`);
+  console.log(`📢 Broadcast completed${mediaInfo}: ${totalSent} sent, ${totalFailed} failed, ${blockedUsers.length} blocked`);
 }
 
 function getQueue() {
