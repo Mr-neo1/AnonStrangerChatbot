@@ -2052,9 +2052,14 @@ app.post('/api/admin/users/sync-usernames', requireAuth, async (req, res) => {
   try {
     const { limit = 500 } = req.body;
     
-    // Get users without usernames
+    // Get users without usernames (use Op.or for both null and empty string)
     const usersToSync = await User.findAll({
-      where: { username: null },
+      where: { 
+        [Op.or]: [
+          { username: null },
+          { username: '' }
+        ]
+      },
       limit: parseInt(limit),
       order: [['createdAt', 'DESC']],
       attributes: ['userId', 'telegramId']
@@ -2079,7 +2084,9 @@ app.post('/api/admin/users/sync-usernames', requireAuth, async (req, res) => {
     // Process in batches to avoid rate limits
     for (const user of usersToSync) {
       try {
-        const chat = await bot.getChat(user.telegramId);
+        // Use telegramId if available, otherwise userId (they're typically the same)
+        const tgId = user.telegramId || user.userId;
+        const chat = await bot.getChat(tgId);
         if (chat.username || chat.first_name) {
           await User.update({
             username: chat.username || null,
