@@ -334,10 +334,11 @@
                     <th class="pb-2 px-2">Gender</th>
                     <th class="pb-2 px-2">Age</th>
                     <th class="pb-2 px-2">Bot</th>
+                    <th class="pb-2 px-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="liveUsersTable" class="divide-y divide-dark-800">
-                  <tr><td colspan="7" class="py-4 text-center text-dark-400">Loading...</td></tr>
+                  <tr><td colspan="8" class="py-4 text-center text-dark-400">Loading...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -352,12 +353,13 @@
               <span class="text-dark-500">to</span>
               <input type="date" id="analyticsEndDate" class="input-field w-auto">
               <button onclick="loadAnalytics()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">Load Data</button>
+              <button onclick="exportAnalytics()" class="bg-dark-700 hover:bg-dark-600 px-4 py-2 rounded-lg text-sm">📥 Export</button>
             </div>
             <div class="h-64">
               <canvas id="analyticsChart"></canvas>
             </div>
           </div>
-          <div class="grid md:grid-cols-4 gap-3">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
             <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
               <div class="text-xs text-dark-500">New Users (Period)</div>
               <div id="analytics-newUsers" class="text-2xl font-bold text-blue-400 mt-1">-</div>
@@ -367,12 +369,37 @@
               <div id="analytics-totalChats" class="text-2xl font-bold text-purple-400 mt-1">-</div>
             </div>
             <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
-              <div class="text-xs text-dark-500">VIP Revenue</div>
+              <div class="text-xs text-dark-500">VIP Revenue (⭐)</div>
               <div id="analytics-vipRevenue" class="text-2xl font-bold text-yellow-400 mt-1">-</div>
             </div>
             <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">Lock Revenue (⭐)</div>
+              <div id="analytics-lockRevenue" class="text-2xl font-bold text-orange-400 mt-1">-</div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-xs text-dark-500">Active Users</div>
+              <div id="analytics-activeUsers" class="text-2xl font-bold text-green-400 mt-1">-</div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
               <div class="text-xs text-dark-500">Avg Rating</div>
-              <div id="analytics-avgRating" class="text-2xl font-bold text-green-400 mt-1">-</div>
+              <div id="analytics-avgRating" class="text-2xl font-bold text-cyan-400 mt-1">-</div>
+            </div>
+          </div>
+          <!-- Detailed breakdown -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h4 class="text-sm font-semibold text-white mb-3">📊 Gender Distribution</h4>
+              <div id="analytics-genderBreakdown" class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-dark-400">Male</span><span id="analytics-maleCount" class="text-blue-400">-</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Female</span><span id="analytics-femaleCount" class="text-pink-400">-</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Unknown</span><span id="analytics-otherCount" class="text-dark-300">-</span></div>
+              </div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h4 class="text-sm font-semibold text-white mb-3">📈 Bot Usage</h4>
+              <div id="analytics-botBreakdown" class="space-y-2 text-sm">
+                <div class="text-dark-400 text-xs">Loading...</div>
+              </div>
             </div>
           </div>
         </section>
@@ -1021,7 +1048,7 @@
         document.getElementById('live-searching-count').textContent = searching;
         
         if (data.activeUsers.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-dark-400">No active users right now</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-dark-400">No active users right now</td></tr>';
           return;
         }
         
@@ -1030,21 +1057,37 @@
           const safePartnerUsername = escapeHtml(u.partnerUsername);
           const safeFirstName = escapeHtml(u.firstName);
           const safePartnerFirstName = escapeHtml(u.partnerFirstName);
+          const userId = u.odUserId || u.userId;
           
           const partnerDisplay = u.partnerId 
             ? (u.partnerUsername 
                 ? `<a href="https://t.me/${safePartnerUsername}" target="_blank" class="text-blue-400 hover:underline">@${safePartnerUsername}</a> <span class="text-dark-500 text-xs">(${escapeHtml(u.partnerId)})</span>`
                 : `${safePartnerFirstName || escapeHtml(u.partnerId)}`)
             : '-';
+          
+          const genderDisplay = u.gender === 'male' || u.gender === 'Male' 
+            ? '<span class="text-blue-400">👨 Male</span>' 
+            : u.gender === 'female' || u.gender === 'Female' 
+              ? '<span class="text-pink-400">👩 Female</span>' 
+              : '<span class="text-dark-500">-</span>';
+          
+          const actionsHtml = u.status === 'chatting' 
+            ? `<div class="flex gap-1">
+                <button onclick="spyChat('${escapeHtml(userId)}', '${escapeHtml(u.partnerId)}')" title="Watch Chat" class="text-purple-400 hover:text-purple-300 text-xs px-1">👁️</button>
+                <button onclick="disconnectUserFromChat('${escapeHtml(userId)}')" title="Disconnect" class="text-red-400 hover:text-red-300 text-xs px-1">⛔</button>
+               </div>`
+            : `<button onclick="removeFromQueue('${escapeHtml(userId)}')" title="Remove from queue" class="text-red-400 hover:text-red-300 text-xs px-1">🗑️</button>`;
+          
           return `
           <tr class="hover:bg-dark-800/50">
-            <td class="px-2 py-2 font-mono text-xs">${escapeHtml(u.odUserId || u.userId) || '-'}</td>
+            <td class="px-2 py-2 font-mono text-xs">${escapeHtml(userId) || '-'}</td>
             <td class="px-2 py-2">${safeUsername ? `<a href="https://t.me/${safeUsername}" target="_blank" class="text-blue-400 hover:underline">@${safeUsername}</a>` : (safeFirstName || '-')}</td>
             <td class="px-2 py-2">${u.status === 'chatting' ? '<span class="text-green-400">💬 Chatting</span>' : '<span class="text-yellow-400">🔍 Searching</span>'}</td>
             <td class="px-2 py-2">${partnerDisplay}</td>
-            <td class="px-2 py-2">${u.gender === 'male' || u.gender === 'Male' ? '👨' : u.gender === 'female' || u.gender === 'Female' ? '👩' : '-'}</td>
+            <td class="px-2 py-2">${genderDisplay}</td>
             <td class="px-2 py-2">${u.age || '-'}</td>
             <td class="px-2 py-2 text-xs">${escapeHtml(u.botId) || '-'}</td>
+            <td class="px-2 py-2">${actionsHtml}</td>
           </tr>`;
         }).join('');
       } catch (err) {
@@ -1084,6 +1127,67 @@
     
     // Start live refresh on load
     startLiveRefresh();
+
+    // Spy on a chat between two users
+    async function spyChat(userId, partnerId) {
+      try {
+        const data = await api('/spy-chat', { method: 'POST', body: { userId, partnerId } });
+        if (data.recentMessages && data.recentMessages.length > 0) {
+          let msgHtml = '<div class="max-h-96 overflow-y-auto space-y-2">';
+          for (const msg of data.recentMessages) {
+            const isUser1 = msg.senderId == userId;
+            msgHtml += `<div class="p-2 rounded ${isUser1 ? 'bg-blue-900/30' : 'bg-green-900/30'}">
+              <div class="text-xs text-dark-400 mb-1">${isUser1 ? 'User ' + userId : 'Partner ' + partnerId}</div>
+              <div class="text-sm text-white">${escapeHtml(msg.content || msg.text || '[Media]')}</div>
+            </div>`;
+          }
+          msgHtml += '</div>';
+          showAlertModal('Chat History (Last 20 messages)', msgHtml);
+        } else {
+          toast('No messages found for this chat', 'info');
+        }
+      } catch (err) {
+        console.error('Spy error:', err);
+        toast('Could not fetch chat history', 'error');
+      }
+    }
+    
+    // Disconnect user from chat
+    async function disconnectUserFromChat(userId) {
+      if (!confirm(`Disconnect user ${userId} from their chat?`)) return;
+      try {
+        await api('/quick/disconnect', { method: 'POST', body: { userId, reason: 'Admin disconnection' } });
+        toast('User disconnected', 'success');
+        loadLiveUsers();
+      } catch (err) {
+        toast('Failed to disconnect user', 'error');
+      }
+    }
+    
+    // Remove user from search queue
+    async function removeFromQueue(userId) {
+      if (!confirm(`Remove user ${userId} from the queue?`)) return;
+      try {
+        await api('/quick/remove-from-queue', { method: 'POST', body: { userId } });
+        toast('User removed from queue', 'success');
+        loadLiveUsers();
+      } catch (err) {
+        toast('Failed to remove user', 'error');
+      }
+    }
+    
+    // Show alert modal with custom content
+    function showAlertModal(title, html) {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50';
+      modal.innerHTML = `
+        <div class="bg-dark-900 rounded-xl border border-dark-700 p-6 max-w-lg w-full mx-4">
+          <h3 class="text-lg font-bold text-white mb-4">${title}</h3>
+          <div class="mb-4">${html}</div>
+          <button onclick="this.closest('.fixed').remove()" class="btn-primary px-4 py-2 rounded-lg text-white">Close</button>
+        </div>`;
+      document.body.appendChild(modal);
+    }
 
     // Users
     async function loadUsers(page = 1) {
@@ -1193,7 +1297,8 @@
             </div>
             <div class="text-sm text-dark-400 space-y-1 mb-3">
               <div class="flex justify-between"><span>ID:</span><span class="text-white">${bot.id}</span></div>
-              <div class="flex justify-between"><span>Users:</span><span class="text-primary-400 font-semibold">${bot.userCount || 0}</span></div>
+              <div class="flex justify-between"><span>Total Users:</span><span class="text-primary-400 font-semibold">${(bot.userCount || 0).toLocaleString()}</span></div>
+              <div class="flex justify-between"><span>Today's Chats:</span><span class="text-green-400 font-semibold">${(bot.todayChats || 0).toLocaleString()}</span></div>
               <div class="flex justify-between"><span>Token:</span><span class="font-mono text-xs text-dark-500">${bot.token}</span></div>
               <div class="flex justify-between"><span>Status:</span><span class="${bot.disabled ? 'text-yellow-400' : 'text-green-400'}">${bot.disabled ? 'Disabled' : 'Enabled'}</span></div>
             </div>
@@ -1768,12 +1873,14 @@
         const data = await api(`/analytics?startDate=${startDate}&endDate=${endDate}`);
         
         // Update summary stats
-        let totalNew = 0, totalChats = 0, totalRevenue = 0, ratingCount = 0, ratingSum = 0;
+        let totalNew = 0, totalChats = 0, totalVipRevenue = 0, totalLockRevenue = 0, ratingCount = 0, ratingSum = 0, activeUsers = 0;
         if (Array.isArray(data)) {
           data.forEach(d => {
             totalNew += d.newUsers || 0;
             totalChats += d.totalChats || 0;
-            totalRevenue += d.vipRevenue || 0;
+            totalVipRevenue += d.vipRevenue || 0;
+            totalLockRevenue += d.lockRevenue || 0;
+            activeUsers += d.activeUsers || 0;
             if (d.positiveRatings !== undefined) {
               ratingSum += d.positiveRatings;
               ratingCount += (d.positiveRatings || 0) + (d.negativeRatings || 0);
@@ -1783,8 +1890,34 @@
         
         document.getElementById('analytics-newUsers').textContent = totalNew.toLocaleString();
         document.getElementById('analytics-totalChats').textContent = totalChats.toLocaleString();
-        document.getElementById('analytics-vipRevenue').textContent = totalRevenue.toLocaleString() + ' ⭐';
+        document.getElementById('analytics-vipRevenue').textContent = totalVipRevenue.toLocaleString() + ' ⭐';
+        document.getElementById('analytics-lockRevenue').textContent = totalLockRevenue.toLocaleString() + ' ⭐';
+        document.getElementById('analytics-activeUsers').textContent = activeUsers.toLocaleString();
         document.getElementById('analytics-avgRating').textContent = ratingCount > 0 ? ((ratingSum / ratingCount) * 100).toFixed(1) + '%' : 'N/A';
+        
+        // Load gender breakdown
+        try {
+          const genderData = await api('/analytics/gender');
+          document.getElementById('analytics-maleCount').textContent = (genderData.male || 0).toLocaleString();
+          document.getElementById('analytics-femaleCount').textContent = (genderData.female || 0).toLocaleString();
+          document.getElementById('analytics-otherCount').textContent = (genderData.other || 0).toLocaleString();
+        } catch (e) {}
+        
+        // Load bot breakdown
+        try {
+          const botData = await api('/analytics/bots');
+          const container = document.getElementById('analytics-botBreakdown');
+          if (botData && botData.length > 0) {
+            container.innerHTML = botData.map(b => `
+              <div class="flex justify-between">
+                <span class="text-dark-400">${b.botId || 'Unknown'}</span>
+                <span class="text-green-400">${(b.count || 0).toLocaleString()} users</span>
+              </div>
+            `).join('');
+          } else {
+            container.innerHTML = '<div class="text-dark-500 text-xs">No data</div>';
+          }
+        } catch (e) {}
         
         // Update chart
         const ctx = document.getElementById('analyticsChart').getContext('2d');
@@ -1814,6 +1947,12 @@
           }
         });
       } catch (err) {}
+    }
+    
+    async function exportAnalytics() {
+      const startDate = document.getElementById('analyticsStartDate').value;
+      const endDate = document.getElementById('analyticsEndDate').value;
+      window.open(`/api/admin/export?table=analytics&format=csv&startDate=${startDate}&endDate=${endDate}`, '_blank');
     }
 
     // Audit Logs

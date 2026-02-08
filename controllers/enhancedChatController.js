@@ -1431,6 +1431,22 @@ class EnhancedChatController {
         const text = msg.text.trim();
         const normalizedText = text.replace(/\uFE0F/g, ''); // strip variation selectors
 
+        // Sync user profile info (username, firstName) on every interaction
+        // This ensures we capture usernames for users who joined before we started saving them
+        try {
+          const username = msg.from.username || null;
+          const firstName = msg.from.first_name || null;
+          const lastName = msg.from.last_name || null;
+          if (username || firstName) {
+            await User.update(
+              { username, firstName, lastName, lastActiveAt: new Date() },
+              { where: { userId: String(userId) } }
+            );
+          }
+        } catch (syncErr) {
+          // Non-critical - continue processing even if sync fails
+        }
+
         // Media privacy toggle (allowed even when not connected)
         // Match various button formats: emoji, diamond fallback, or plain text
         const lowerText = normalizedText.toLowerCase();

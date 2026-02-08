@@ -25,20 +25,13 @@ const AdminAuditLog = sequelize.define('AdminAuditLog', {
     allowNull: true
   },
   
-  // Action category
+  // Action category (auth, user, config, broadcast, bot, export, maintenance, report, other)
   category: {
-    type: DataTypes.ENUM(
-      'auth',           // Login/logout
-      'user',           // User management (ban/unban/vip)
-      'config',         // Configuration changes
-      'broadcast',      // Broadcast messages
-      'bot',            // Bot management
-      'export',         // Data exports
-      'maintenance',    // Maintenance mode
-      'report',         // Report reviews
-      'other'
-    ),
-    allowNull: false
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    validate: {
+      isIn: [['auth', 'user', 'config', 'broadcast', 'bot', 'export', 'maintenance', 'report', 'other']]
+    }
   },
   
   // Specific action

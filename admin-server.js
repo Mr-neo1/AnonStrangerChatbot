@@ -1323,6 +1323,98 @@ app.get('/api/admin/quick/username/:userId', requireAuth, async (req, res) => {
   }
 });
 
+// Spy on chat - get recent messages between two users
+app.post('/api/admin/spy-chat', requireAuth, async (req, res) => {
+  try {
+    const { userId, partnerId } = req.body;
+    
+    if (!userId || !partnerId) {
+      return res.status(400).json({ error: 'userId and partnerId required' });
+    }
+    
+    // Get recent chat messages from the Chat model
+    const { Chat } = require('./models');
+    const { Op } = require('sequelize');
+    
+    // Find active or recent chat between these users
+    const chat = await Chat.findOne({
+      where: {
+        [Op.or]: [
+          { user1: String(userId), user2: String(partnerId) },
+          { user1: String(partnerId), user2: String(userId) }
+        ]
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    
+    if (!chat) {
+      return res.json({ recentMessages: [], chatId: null, note: 'No chat found between these users' });
+    }
+    
+    // Try to get message history from Redis (if cached)
+    const messagesKey = `chat:messages:${chat.id}`;
+    let messages = [];
+    
+    try {
+      const cachedMessages = await redisClient.lRange(messagesKey, -20, -1).catch(() => []);
+      messages = (cachedMessages || []).map(m => {
+        try { return JSON.parse(m); } catch { return null; }
+      }).filter(Boolean);
+    } catch (e) {
+      // No cached messages
+    }
+    
+    // If no cached messages, return chat info
+    res.json({ 
+      recentMessages: messages,
+      chatId: chat.id,
+      startedAt: chat.createdAt,
+      active: chat.active,
+      messageCount: chat.messageCount || 0,
+      note: messages.length ? null : 'Message history not available (not cached)'
+    });
+    
+  } catch (error) {
+    console.error('Spy chat error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove user from search queue
+app.post('/api/admin/quick/remove-from-queue', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+    
+    // Remove from all queues
+    const queues = ['queue:vip', 'queue:free', 'queue:general', 'queue:vip:any'];
+    let removed = false;
+    
+    for (const queue of queues) {
+      const result = await redisClient.lRem(queue, 0, String(userId)).catch(() => 0);
+      if (result > 0) removed = true;
+    }
+    
+    // Also try with MatchingService
+    try {
+      const MatchingService = require('./services/matchingService');
+      await MatchingService.dequeueUser('default', userId);
+    } catch (e) {}
+    
+    res.json({ 
+      success: true, 
+      removed,
+      message: removed ? 'User removed from queue' : 'User was not in any queue'
+    });
+  } catch (error) {
+    console.error('Remove from queue error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== BOT MANAGEMENT ====================
 
 app.get('/api/admin/bots', requireAuth, async (req, res) => {
@@ -1339,7 +1431,7 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
       // Bots module not available
     }
     
-    // Get user counts per bot
+    // Get user counts per bot and active chats
     const userCounts = await User.findAll({
       attributes: ['botId', [sequelize.fn('COUNT', sequelize.col('userId')), 'count']],
       group: ['botId'],
@@ -1348,6 +1440,22 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
     const countMap = {};
     for (const row of userCounts) {
       countMap[row.botId] = parseInt(row.count) || 0;
+    }
+    
+    // Get today's chats per bot
+    const { Chat } = require('./models');
+    const { Op } = require('sequelize');
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const chatCounts = await Chat.findAll({
+      attributes: ['botId', [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+      where: { createdAt: { [Op.gte]: todayStart } },
+      group: ['botId'],
+      raw: true
+    }).catch(() => []);
+    const chatMap = {};
+    for (const row of chatCounts) {
+      chatMap[row.botId] = parseInt(row.count) || 0;
     }
     
     const bots = [];
@@ -1381,7 +1489,8 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
         username: username ? `@${username}` : `Bot ${i}`,
         status: isRunning ? 'running' : 'stopped',
         disabled: disabled === true || disabled === 'true',
-        userCount: countMap[botId] || 0
+        userCount: countMap[botId] || 0,
+        todayChats: chatMap[botId] || 0
       });
     }
     
@@ -1620,6 +1729,54 @@ app.get('/api/admin/analytics', requireAuth, async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Analytics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Gender analytics
+app.get('/api/admin/analytics/gender', requireAuth, async (req, res) => {
+  try {
+    const { User } = require('./models');
+    const { sequelize } = require('./database/connectionPool');
+    
+    const results = await User.findAll({
+      attributes: ['gender', [sequelize.fn('COUNT', sequelize.col('userId')), 'count']],
+      group: ['gender'],
+      raw: true
+    }).catch(() => []);
+    
+    const counts = { male: 0, female: 0, other: 0 };
+    for (const row of results) {
+      const g = (row.gender || '').toLowerCase();
+      if (g === 'male') counts.male = parseInt(row.count) || 0;
+      else if (g === 'female') counts.female = parseInt(row.count) || 0;
+      else counts.other += parseInt(row.count) || 0;
+    }
+    
+    res.json(counts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bot usage analytics
+app.get('/api/admin/analytics/bots', requireAuth, async (req, res) => {
+  try {
+    const { User } = require('./models');
+    const { sequelize } = require('./database/connectionPool');
+    
+    const results = await User.findAll({
+      attributes: ['botId', [sequelize.fn('COUNT', sequelize.col('userId')), 'count']],
+      group: ['botId'],
+      order: [[sequelize.fn('COUNT', sequelize.col('userId')), 'DESC']],
+      raw: true
+    }).catch(() => []);
+    
+    res.json(results.map(r => ({
+      botId: r.botId || 'Unknown',
+      count: parseInt(r.count) || 0
+    })));
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
