@@ -225,7 +225,14 @@ class LockChatService {
       return record;
     } catch (err) {
       if (!transactionProvided) {
-        try { await t.rollback(); } catch (e) {}
+        try { await t.rollback(); } catch (e) {
+          console.error('LockChatService: Transaction rollback failed:', e);
+        }
+      }
+      // Log root cause
+      console.error('LockChatService: activateLockFromCredits failed:', err);
+      if (err && err.message) {
+        await redisClient.setEx(`lock:error:${chatId}:${ownerId}`, 600, err.message);
       }
       throw err;
     }
