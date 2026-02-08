@@ -2047,6 +2047,69 @@ app.post('/api/admin/users/message', requireAuth, async (req, res) => {
   }
 });
 
+// Sync usernames from Telegram API
+app.post('/api/admin/users/sync-usernames', requireAuth, async (req, res) => {
+  try {
+    const { limit = 500 } = req.body;
+    
+    // Get users without usernames
+    const usersToSync = await User.findAll({
+      where: { username: null },
+      limit: parseInt(limit),
+      order: [['createdAt', 'DESC']],
+      attributes: ['userId', 'telegramId']
+    });
+    
+    if (usersToSync.length === 0) {
+      return res.json({ success: true, updated: 0, message: 'All users already have usernames' });
+    }
+    
+    // Get bot to fetch user info
+    const { getAllBots } = require('./bots');
+    const bots = getAllBots();
+    
+    if (!bots || bots.length === 0) {
+      return res.status(503).json({ error: 'No bots available' });
+    }
+    
+    const bot = bots[0];
+    let updated = 0;
+    let failed = 0;
+    
+    // Process in batches to avoid rate limits
+    for (const user of usersToSync) {
+      try {
+        const chat = await bot.getChat(user.telegramId);
+        if (chat.username || chat.first_name) {
+          await User.update({
+            username: chat.username || null,
+            firstName: chat.first_name || null,
+            lastName: chat.last_name || null
+          }, { where: { userId: user.userId } });
+          updated++;
+        }
+      } catch (e) {
+        // User blocked bot or doesn't exist
+        failed++;
+      }
+      
+      // Rate limit: 100ms between requests
+      await new Promise(r => setTimeout(r, 100));
+    }
+    
+    res.json({ 
+      success: true, 
+      updated, 
+      failed,
+      total: usersToSync.length,
+      message: `Synced ${updated} usernames (${failed} failed)`
+    });
+  } catch (error) {
+    console.error('Sync usernames error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== BOT REFRESH ENDPOINT ====================
 
 app.post('/api/admin/bots/refresh', requireAuth, async (req, res) => {
