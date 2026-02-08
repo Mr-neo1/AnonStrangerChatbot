@@ -233,7 +233,7 @@ class LockChatService {
 
   // Return owner userIds (strings) for given chat
   static async getLockOwners(chatId) {
-    const keys = await scanKeys(`chat:locks:${chatId}:*`);
+    const keys = await scanKeys(redisClient, `chat:locks:${chatId}:*`, 100);
     return keys.map(k => k.split(':')[3]);
   }
 

@@ -3,7 +3,8 @@ class MemoryRedis {
   constructor() {
     this.data = new Map();
     this.lists = new Map();
-    this.expirations = new Map();
+    this.expirations = new Map(); // Stores expiration timestamp (Date.now() + seconds*1000)
+    this.timers = new Map(); // Store timeout references for cleanup
     console.log("✅ Memory Redis Connected");
   }
 
@@ -11,11 +12,16 @@ class MemoryRedis {
   async set(key, value, options = {}) {
     this.data.set(key, value);
     if (options.EX) {
-      this.expirations.set(key, options.EX);
-      setTimeout(() => {
+      const expiresAt = Date.now() + options.EX * 1000;
+      this.expirations.set(key, expiresAt);
+      // Clear existing timer if any
+      if (this.timers.has(key)) clearTimeout(this.timers.get(key));
+      const timer = setTimeout(() => {
         this.data.delete(key);
         this.expirations.delete(key);
+        this.timers.delete(key);
       }, options.EX * 1000);
+      this.timers.set(key, timer);
     }
     return "OK";
   }
@@ -34,6 +40,11 @@ class MemoryRedis {
       if (this.data.delete(key)) deleted++;
       this.lists.delete(key);
       this.expirations.delete(key);
+      // Clean up timer if exists
+      if (this.timers.has(key)) {
+        clearTimeout(this.timers.get(key));
+        this.timers.delete(key);
+      }
     });
     return deleted;
   }
@@ -47,18 +58,26 @@ class MemoryRedis {
 
   async expire(key, seconds) {
     if (this.data.has(key)) {
-      this.expirations.set(key, seconds);
-      setTimeout(() => {
+      const expiresAt = Date.now() + seconds * 1000;
+      this.expirations.set(key, expiresAt);
+      // Clear existing timer if any
+      if (this.timers.has(key)) clearTimeout(this.timers.get(key));
+      const timer = setTimeout(() => {
         this.data.delete(key);
         this.expirations.delete(key);
+        this.timers.delete(key);
       }, seconds * 1000);
+      this.timers.set(key, timer);
       return 1;
     }
     return 0;
   }
 
   async ttl(key) {
-    return this.expirations.has(key) ? this.expirations.get(key) : -1;
+    if (!this.expirations.has(key)) return -2; // Key doesn't exist
+    const expiresAt = this.expirations.get(key);
+    const remaining = Math.ceil((expiresAt - Date.now()) / 1000);
+    return remaining > 0 ? remaining : -2; // Expired
   }
 
   // List operations
