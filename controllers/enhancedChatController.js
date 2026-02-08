@@ -500,13 +500,24 @@ class EnhancedChatController {
           where: { userId },
           defaults: { 
             telegramId: userId,
+            username: msg.from.username || null,
+            firstName: msg.from.first_name || null,
+            lastName: msg.from.last_name || null,
             botId: currentBotId
           },
         });
 
+        // Always update user profile info on /start (username, firstName, lastName can change)
+        if (!created) {
+          const updates = { botId: currentBotId };
+          if (msg.from.username) updates.username = msg.from.username;
+          if (msg.from.first_name) updates.firstName = msg.from.first_name;
+          if (msg.from.last_name) updates.lastName = msg.from.last_name;
+          await User.update(updates, { where: { userId } });
+        }
+
         // Update botId if user switched bots
         if (!created && user.botId !== currentBotId) {
-          await User.update({ botId: currentBotId }, { where: { userId } });
           console.log(`📝 Updated user ${userId} from ${user.botId} to ${currentBotId}`);
         }
 

@@ -886,7 +886,9 @@ app.get('/api/admin/users', requireAuth, async (req, res) => {
     if (search) {
       where[Op.or] = [
         { userId: { [Op.like]: `%${search}%` } },
-        { telegramId: { [Op.like]: `%${search}%` } }
+        { telegramId: { [Op.like]: `%${search}%` } },
+        { username: { [Op.like]: `%${search}%` } },
+        { firstName: { [Op.like]: `%${search}%` } }
       ];
     }
     
@@ -906,7 +908,7 @@ app.get('/api/admin/users', requireAuth, async (req, res) => {
       limit: parseInt(limit),
       offset,
       order: [['createdAt', 'DESC']],
-      attributes: ['userId', 'telegramId', 'username', 'firstName', 'gender', 'age', 'banned', 'totalChats', 'createdAt', 'botId']
+      attributes: ['userId', 'telegramId', 'username', 'firstName', 'lastName', 'gender', 'age', 'banned', 'totalChats', 'createdAt', 'botId']
     });
     
     // Get VIP status for each user
@@ -953,6 +955,17 @@ app.post('/api/admin/users/:userId/ban', requireAuth, async (req, res) => {
       }
     } catch (e) {}
     
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'user',
+      action: 'ban',
+      targetType: 'user',
+      targetId: userId,
+      success: true
+    });
+    
     res.json({ success: true, message: 'User banned, cache cleared, removed from queues' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -968,6 +981,17 @@ app.post('/api/admin/users/:userId/unban', requireAuth, async (req, res) => {
     const UserCacheService = require('./services/userCacheService');
     await UserCacheService.invalidate(userId);
     
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'user',
+      action: 'unban',
+      targetType: 'user',
+      targetId: userId,
+      success: true
+    });
+    
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -981,6 +1005,18 @@ app.post('/api/admin/users/:userId/vip', requireAuth, async (req, res) => {
     
     const VipService = require('./services/vipService');
     const expiry = await VipService.activateVip(userId, days || 30, { source: 'admin_grant' });
+    
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'user',
+      action: 'grant_vip',
+      targetType: 'user',
+      targetId: userId,
+      newValue: `${days || 30} days`,
+      success: true
+    });
     
     res.json({ success: true, expiresAt: expiry });
   } catch (error) {
@@ -1303,6 +1339,17 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
       // Bots module not available
     }
     
+    // Get user counts per bot
+    const userCounts = await User.findAll({
+      attributes: ['botId', [sequelize.fn('COUNT', sequelize.col('userId')), 'count']],
+      group: ['botId'],
+      raw: true
+    }).catch(() => []);
+    const countMap = {};
+    for (const row of userCounts) {
+      countMap[row.botId] = parseInt(row.count) || 0;
+    }
+    
     const bots = [];
     for (let i = 0; i < tokens.length; i++) {
       const botId = `bot_${i}`;
@@ -1316,7 +1363,6 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
       const runningBot = runningBots.find(b => b._meta?.botId === botId || b._meta?.index === i);
       let username = null;
       let isRunning = false;
-      let activeUsers = 0;
       
       if (runningBot) {
         isRunning = runningBot._pollingState?.active !== false;
@@ -1335,7 +1381,7 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
         username: username ? `@${username}` : `Bot ${i}`,
         status: isRunning ? 'running' : 'stopped',
         disabled: disabled === true || disabled === 'true',
-        activeUsers: activeUsers
+        userCount: countMap[botId] || 0
       });
     }
     
@@ -1448,7 +1494,7 @@ const upload = multer({
 
 app.post('/api/admin/broadcast', requireAuth, upload.single('media'), async (req, res) => {
   try {
-    const { message, audience, target, mediaType } = req.body;
+    const { message, audience, target, mediaType, botId } = req.body;
     const actualAudience = audience || target || 'all'; // Support both audience and target
     const mediaFile = req.file;
     
@@ -1460,6 +1506,7 @@ app.post('/api/admin/broadcast', requireAuth, upload.single('media'), async (req
     const broadcastData = {
       message: message || '',
       audience: actualAudience,
+      botId: botId || null, // Filter by specific bot
       meta: { source: 'admin_panel' }
     };
     
@@ -1478,6 +1525,18 @@ app.post('/api/admin/broadcast', requireAuth, upload.single('media'), async (req
     const { enqueueBroadcast } = require('./services/queueService');
     await enqueueBroadcast(broadcastData);
     
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'broadcast',
+      action: 'send',
+      targetType: 'audience',
+      targetId: actualAudience,
+      details: { botId: botId || 'all', hasMedia: !!mediaFile },
+      success: true
+    });
+    
     res.json({ success: true, queued: true, hasMedia: !!mediaFile });
   } catch (error) {
     console.error('Broadcast error:', error);
@@ -1495,7 +1554,7 @@ app.get('/api/admin/analytics', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'startDate and endDate are required' });
     }
     
-    const { User, VipSubscription, StarTransaction } = require('./models');
+    const { User, VipSubscription, StarTransaction, Chat, LockHistory } = require('./models');
     const { Op } = require('sequelize');
     
     // Generate date range
@@ -1511,31 +1570,48 @@ app.get('/api/admin/analytics', requireAuth, async (req, res) => {
       const dayStart = new Date(dateStr + 'T00:00:00.000Z');
       const dayEnd = new Date(dateStr + 'T23:59:59.999Z');
       
-      const [newUsers, totalChats, vipRevenue] = await Promise.all([
+      const [newUsers, totalChats, vipRevenue, lockRevenue, activeUsers] = await Promise.all([
+        // New users registered on this day
         User.count({
           where: { createdAt: { [Op.between]: [dayStart, dayEnd] } }
         }).catch(() => 0),
         
-        // Approximate chats from user activity
-        User.count({
-          where: { lastActiveAt: { [Op.between]: [dayStart, dayEnd] } }
+        // Total chats started on this day
+        Chat.count({
+          where: { createdAt: { [Op.between]: [dayStart, dayEnd] } }
         }).catch(() => 0),
         
+        // VIP revenue (stars)
         StarTransaction.sum('amount', {
           where: {
             type: 'vip',
             createdAt: { [Op.between]: [dayStart, dayEnd] }
           }
-        }).then(sum => sum || 0).catch(() => 0)
+        }).then(sum => sum || 0).catch(() => 0),
+        
+        // Lock revenue (stars)
+        StarTransaction.sum('amount', {
+          where: {
+            type: 'lock',
+            createdAt: { [Op.between]: [dayStart, dayEnd] }
+          }
+        }).then(sum => sum || 0).catch(() => 0),
+        
+        // Active users (users who had chats on this day)
+        Chat.count({
+          where: { createdAt: { [Op.between]: [dayStart, dayEnd] } },
+          col: 'user1',
+          distinct: true
+        }).catch(() => 0)
       ]);
       
       return {
         date: dateStr,
         newUsers,
-        activeUsers: totalChats,
+        activeUsers,
         totalChats,
         vipRevenue,
-        lockRevenue: 0,
+        lockRevenue,
         positiveRatings: 0,
         negativeRatings: 0
       };
@@ -1774,12 +1850,38 @@ app.post('/api/admin/users/message', requireAuth, async (req, res) => {
   try {
     const { userId, message } = req.body;
     
-    // Try to get a bot to send the message
+    // Get user's bot preference
+    const user = await User.findOne({ where: { userId }, attributes: ['botId'] });
+    const userBotId = user?.botId;
+    
+    // Try to use the running bots first
+    try {
+      const { getAllBots } = require('./bots');
+      const bots = getAllBots() || [];
+      
+      // Find the user's preferred bot or use first available
+      let bot = null;
+      if (userBotId && bots.length > 0) {
+        bot = bots.find(b => b._meta?.botId === userBotId);
+      }
+      if (!bot && bots.length > 0) {
+        bot = bots[0];
+      }
+      
+      if (bot) {
+        await bot.sendMessage(userId, `📢 *Admin Message*\n\n${message}`, { parse_mode: 'Markdown' });
+        return res.json({ success: true, via: 'running_bot' });
+      }
+    } catch (e) {
+      // Fall through to direct token
+    }
+    
+    // Fallback: Try to use bot token directly
     const botTokens = (process.env.BOT_TOKENS || process.env.BOT_TOKEN || '').split(',').filter(Boolean);
     if (botTokens.length > 0) {
       const TelegramBot = require('node-telegram-bot-api');
       const tempBot = new TelegramBot(botTokens[0], { polling: false });
-      await tempBot.sendMessage(userId, message, { parse_mode: 'Markdown' });
+      await tempBot.sendMessage(userId, `📢 *Admin Message*\n\n${message}`, { parse_mode: 'Markdown' });
     }
     
     res.json({ success: true });
@@ -2297,31 +2399,6 @@ app.post('/api/admin/lock-chat/remove', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Remove lock error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ==================== AUDIT LOGS ====================
-
-app.get('/api/admin/audit-logs', requireAuth, async (req, res) => {
-  try {
-    const { category, limit = 50 } = req.query;
-    
-    // Try to get from AuditLog model, or return empty
-    try {
-      const { AuditLog } = require('./models');
-      const where = category ? { category } : {};
-      const logs = await AuditLog.findAll({
-        where,
-        order: [['createdAt', 'DESC']],
-        limit: parseInt(limit)
-      });
-      res.json({ logs });
-    } catch (e) {
-      // Model might not exist, return empty
-      res.json({ logs: [] });
-    }
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

@@ -441,14 +441,23 @@
           <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
             <h3 class="font-semibold text-white mb-4">📢 Send Broadcast Message</h3>
             <div class="space-y-4">
-              <div>
-                <label class="block text-sm text-dark-300 mb-2">Target Audience</label>
-                <select id="broadcastTarget" class="input-field">
-                  <option value="all">All Users</option>
-                  <option value="vip">VIP Users Only</option>
-                  <option value="non-vip">Non-VIP Users</option>
-                  <option value="active">Active Users (Last 7 days)</option>
-                </select>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Target Audience</label>
+                  <select id="broadcastTarget" class="input-field">
+                    <option value="all">All Users</option>
+                    <option value="vip">VIP Users Only</option>
+                    <option value="non-vip">Non-VIP Users</option>
+                    <option value="active">Active Users (Last 7 days)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Target Bot</label>
+                  <select id="broadcastBot" class="input-field">
+                    <option value="all">All Bots</option>
+                    <!-- Dynamically loaded by loadBroadcastBots() -->
+                  </select>
+                </div>
               </div>
               <div>
                 <label class="block text-sm text-dark-300 mb-2">Message</label>
@@ -1184,6 +1193,7 @@
             </div>
             <div class="text-sm text-dark-400 space-y-1 mb-3">
               <div class="flex justify-between"><span>ID:</span><span class="text-white">${bot.id}</span></div>
+              <div class="flex justify-between"><span>Users:</span><span class="text-primary-400 font-semibold">${bot.userCount || 0}</span></div>
               <div class="flex justify-between"><span>Token:</span><span class="font-mono text-xs text-dark-500">${bot.token}</span></div>
               <div class="flex justify-between"><span>Status:</span><span class="${bot.disabled ? 'text-yellow-400' : 'text-green-400'}">${bot.disabled ? 'Disabled' : 'Enabled'}</span></div>
             </div>
@@ -1371,11 +1381,13 @@
     // Broadcast
     async function sendBroadcast() {
       const target = document.getElementById('broadcastTarget').value;
+      const botId = document.getElementById('broadcastBot').value;
       const message = document.getElementById('broadcastMessage').value;
       if (!message.trim()) { toast('Enter a message', 'error'); return; }
       
       const formData = new FormData();
       formData.append('target', target);
+      formData.append('botId', botId);
       formData.append('message', message);
       const imageFile = document.getElementById('broadcastImage').files[0];
       if (imageFile) formData.append('media', imageFile);
@@ -1387,7 +1399,10 @@
           body: formData
         });
         const data = await res.json();
-        toast(`Broadcast sent to ${data.sent || 0} users`, 'success');
+        const botLabel = botId === 'all' ? 'all bots' : botId;
+        toast(`Broadcast queued for ${target} users on ${botLabel}`, 'success');
+        document.getElementById('broadcastMessage').value = '';
+        document.getElementById('broadcastImage').value = '';
       } catch (err) { toast('Broadcast failed', 'error'); }
     }
 
@@ -2046,9 +2061,26 @@
       }
     }
 
+    // Load broadcast bot options dynamically
+    async function loadBroadcastBots() {
+      try {
+        const data = await api('/bots');
+        const select = document.getElementById('broadcastBot');
+        if (!select || !data.bots) return;
+        
+        select.innerHTML = '<option value="all">All Bots</option>' + 
+          data.bots.map(bot => `<option value="${bot.id}">${bot.username || bot.id} (${bot.userCount || 0} users)</option>`).join('');
+      } catch (err) {
+        console.error('Failed to load bots for broadcast:', err);
+      }
+    }
+
     // Init
     document.addEventListener('DOMContentLoaded', () => {
-      if (authToken) showDashboard();
+      if (authToken) {
+        showDashboard();
+        loadBroadcastBots();
+      }
     });
   </script>
 </body>

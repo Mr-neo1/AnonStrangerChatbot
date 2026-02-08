@@ -210,6 +210,73 @@ async function main() {
     console.log('- Table exists: app_config');
   }
 
+  // AdminAuditLog (matches models/adminAuditLogModel.js)
+  await ensureTable(qi, 'AdminAuditLog', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    adminId: { type: DataTypes.STRING(100), allowNull: false },
+    adminName: { type: DataTypes.STRING(200), allowNull: true },
+    category: { type: DataTypes.STRING(50), allowNull: false },
+    action: { type: DataTypes.STRING(100), allowNull: false },
+    targetType: { type: DataTypes.STRING(50), allowNull: true },
+    targetId: { type: DataTypes.STRING(100), allowNull: true },
+    previousValue: { type: DataTypes.TEXT, allowNull: true },
+    newValue: { type: DataTypes.TEXT, allowNull: true },
+    details: { type: DataTypes.TEXT, allowNull: true },
+    ipAddress: { type: DataTypes.STRING(50), allowNull: true },
+    userAgent: { type: DataTypes.STRING(500), allowNull: true },
+    success: { type: DataTypes.BOOLEAN, defaultValue: true },
+    errorMessage: { type: DataTypes.TEXT, allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+  }, [
+    { fields: ['adminId'], name: 'idx_audit_adminId' },
+    { fields: ['category'], name: 'idx_audit_category' },
+    { fields: ['createdAt'], name: 'idx_audit_createdAt' },
+  ]);
+
+  // ChatRating (matches models/chatRatingModel.js)
+  await ensureTable(qi, 'ChatRating', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    chatId: { type: DataTypes.BIGINT, allowNull: false },
+    raterId: { type: DataTypes.BIGINT, allowNull: false },
+    ratedId: { type: DataTypes.BIGINT, allowNull: false },
+    rating: { type: DataTypes.INTEGER, allowNull: false },
+    feedback: { type: DataTypes.TEXT, allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+  }, [
+    { fields: ['chatId'], name: 'idx_rating_chatId' },
+    { fields: ['raterId'], name: 'idx_rating_raterId' },
+  ]);
+
+  // AnalyticsStats (matches models/analyticsStatsModel.js)
+  await ensureTable(qi, 'AnalyticsStats', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    date: { type: DataTypes.DATEONLY, allowNull: false },
+    metric: { type: DataTypes.STRING(100), allowNull: false },
+    value: { type: DataTypes.INTEGER, defaultValue: 0 },
+    botId: { type: DataTypes.STRING(50), allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+    updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+  }, [
+    { fields: ['date'], name: 'idx_analytics_date' },
+    { fields: ['metric'], name: 'idx_analytics_metric' },
+  ]);
+
+  // ScheduledMaintenance (matches models/scheduledMaintenanceModel.js)
+  await ensureTable(qi, 'ScheduledMaintenance', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    title: { type: DataTypes.STRING(200), allowNull: false },
+    description: { type: DataTypes.TEXT, allowNull: true },
+    startTime: { type: DataTypes.DATE, allowNull: false },
+    endTime: { type: DataTypes.DATE, allowNull: false },
+    status: { type: DataTypes.STRING(20), defaultValue: 'scheduled' },
+    createdBy: { type: DataTypes.STRING(100), allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+    updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: sequelize.literal('CURRENT_TIMESTAMP') },
+  }, [
+    { fields: ['startTime'], name: 'idx_maintenance_startTime' },
+    { fields: ['status'], name: 'idx_maintenance_status' },
+  ]);
+
   console.log('✅ PostgreSQL schema initialization complete.');
   process.exit(0);
 }

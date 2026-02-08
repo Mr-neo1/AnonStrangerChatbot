@@ -58,7 +58,7 @@ function initMemoryQueue() {
 
 // Process broadcast - send messages to users
 async function processBroadcast(data) {
-  const { message, audience = 'all', meta = {} } = data;
+  const { message, audience = 'all', botId = null, meta = {} } = data;
   const { User, VipSubscription } = require('../models');
   const { Op } = require('sequelize');
   const { getAllBots } = require('../bots');
@@ -70,6 +70,12 @@ async function processBroadcast(data) {
   
   // Build user query based on audience
   const where = {};
+  
+  // Filter by specific bot if provided
+  if (botId && botId !== 'all') {
+    where.botId = botId;
+  }
+  
   if (audience === 'vip') {
     // Get VIP user IDs
     const vipUsers = await VipSubscription.findAll({
@@ -179,9 +185,9 @@ function getQueue() {
   return queueImpl;
 }
 
-async function enqueueBroadcast({ message, audience = 'all', meta = {}, media = null }) {
+async function enqueueBroadcast({ message, audience = 'all', botId = null, meta = {}, media = null }) {
   const q = getQueue();
-  const payload = { message, audience, meta, media, requestedBy: meta.requestedBy || 'admin' };
+  const payload = { message, audience, botId, meta, media, requestedBy: meta.requestedBy || 'admin' };
   const job = await q.add(payload);
   return { id: job.id, impl: implType };
 }
