@@ -131,11 +131,17 @@
         <button onclick="switchTab('lockchat')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="lockchat">🔒 Lock Chat</button>
         <button onclick="switchTab('broadcast')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="broadcast">📢 Broadcast</button>
         <button onclick="switchTab('scheduled')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="scheduled">📅 Scheduled</button>
+        <button onclick="switchTab('chatlogs')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="chatlogs">💬 Chat Logs</button>
+        <button onclick="switchTab('feedback')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="feedback">⭐ Feedback</button>
         <div class="pt-2 mt-2 border-t border-dark-800">
           <p class="px-3 text-xs font-semibold text-dark-500 uppercase mb-1">System</p>
           <button onclick="switchTab('monitoring')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="monitoring">🔍 Monitoring</button>
+          <button onclick="switchTab('alerts')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="alerts">🔔 Alerts</button>
           <button onclick="switchTab('messages')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="messages">💬 Bot Messages</button>
           <button onclick="switchTab('config')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="config">⚙️ Config</button>
+          <button onclick="switchTab('ratelimits')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="ratelimits">🚦 Rate Limits</button>
+          <button onclick="switchTab('featureflags')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="featureflags">🧪 Feature Flags</button>
+          <button onclick="switchTab('reports')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="reports">📋 Reports</button>
           <button onclick="switchTab('export')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="export">📤 Export</button>
           <button onclick="switchTab('audit')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="audit">📝 Audit Logs</button>
           <button onclick="switchTab('maintenance')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="maintenance">🔧 Maintenance</button>
@@ -650,33 +656,51 @@
           <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
             <h3 class="font-semibold text-white mb-4">📢 Send Broadcast Message</h3>
             <div class="space-y-4">
-              <div class="grid md:grid-cols-2 gap-4">
+              <div class="grid md:grid-cols-3 gap-4">
                 <div>
                   <label class="block text-sm text-dark-300 mb-2">Target Audience</label>
-                  <select id="broadcastTarget" class="input-field">
+                  <select id="broadcastTarget" class="input-field" onchange="updateAudienceCount()">
                     <option value="all">All Users</option>
                     <option value="vip">VIP Users Only</option>
-                    <option value="non-vip">Non-VIP Users</option>
-                    <option value="active">Active Users (Last 7 days)</option>
+                    <option value="non_vip">Non-VIP Users</option>
+                    <option value="active">Active Users</option>
+                    <option value="banned">Banned Users</option>
                   </select>
                 </div>
                 <div>
                   <label class="block text-sm text-dark-300 mb-2">Target Bot</label>
-                  <select id="broadcastBot" class="input-field">
+                  <select id="broadcastBot" class="input-field" onchange="updateAudienceCount()">
                     <option value="all">All Bots</option>
-                    <!-- Dynamically loaded by loadBroadcastBots() -->
                   </select>
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Active in Last (days)</label>
+                  <input type="number" id="broadcastActiveDays" class="input-field" placeholder="e.g. 7" onchange="updateAudienceCount()">
+                </div>
+              </div>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Min Chats</label>
+                  <input type="number" id="broadcastMinChats" class="input-field" placeholder="Minimum chats count" onchange="updateAudienceCount()">
+                </div>
+                <div class="flex items-end">
+                  <div class="bg-dark-800 rounded-lg px-4 py-2.5 text-sm w-full">
+                    Estimated audience: <span class="text-blue-400 font-bold" id="audienceCount">-</span> users
+                  </div>
                 </div>
               </div>
               <div>
                 <label class="block text-sm text-dark-300 mb-2">Message</label>
-                <textarea id="broadcastMessage" rows="4" class="input-field" placeholder="Enter your message... (supports Markdown)"></textarea>
+                <textarea id="broadcastMessage" rows="4" class="input-field" placeholder="Enter your message... (supports HTML)"></textarea>
               </div>
               <div>
                 <label class="block text-sm text-dark-300 mb-2">Image (Optional)</label>
                 <input type="file" id="broadcastImage" accept="image/*" class="input-field">
               </div>
-              <button onclick="sendBroadcast()" class="btn-primary px-6 py-2.5 rounded-lg text-white">Send Broadcast</button>
+              <div class="flex gap-3">
+                <button onclick="sendBroadcast()" class="btn-primary px-6 py-2.5 rounded-lg text-white">📢 Send to All (Legacy)</button>
+                <button onclick="sendTargetedBroadcast()" class="bg-green-600 hover:bg-green-700 px-6 py-2.5 rounded-lg text-white">🎯 Send Targeted</button>
+              </div>
             </div>
           </div>
         </section>
@@ -1127,6 +1151,297 @@
             </div>
           </div>
         </section>
+
+        <!-- Chat Logs Tab -->
+        <section id="tab-chatlogs" class="tab-content hidden fade-in">
+          <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Total Chats</span>
+              <div class="text-2xl font-bold text-white" id="clTotalChats">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Active Now</span>
+              <div class="text-2xl font-bold text-green-400" id="clActiveChats">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Today</span>
+              <div class="text-2xl font-bold text-blue-400" id="clTodayChats">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Avg Duration</span>
+              <div class="text-2xl font-bold text-purple-400" id="clAvgDuration">-</div>
+            </div>
+          </div>
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-4">
+            <div class="flex flex-wrap gap-3 items-end">
+              <div>
+                <label class="block text-xs text-dark-400 mb-1">Status</label>
+                <select id="clFilterStatus" class="input-field w-auto" onchange="loadChatLogs()">
+                  <option value="">All</option>
+                  <option value="active">Active</option>
+                  <option value="ended">Ended</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-dark-400 mb-1">User ID</label>
+                <input type="text" id="clFilterUserId" class="input-field w-auto" placeholder="Filter by user ID">
+              </div>
+              <button onclick="loadChatLogs()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">🔍 Search</button>
+            </div>
+          </div>
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden">
+            <table class="w-full">
+              <thead><tr class="border-b border-dark-800 text-left text-sm text-dark-400">
+                <th class="px-4 py-3">ID</th>
+                <th class="px-4 py-3">User 1</th>
+                <th class="px-4 py-3">User 2</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3">Started</th>
+                <th class="px-4 py-3">Actions</th>
+              </tr></thead>
+              <tbody id="chatLogsBody"></tbody>
+            </table>
+            <div class="p-3 border-t border-dark-800 flex justify-between items-center">
+              <span class="text-sm text-dark-400" id="clPageInfo">Page 1</span>
+              <div class="flex gap-2">
+                <button onclick="loadChatLogs(chatLogsPage-1)" class="px-3 py-1 rounded bg-dark-800 hover:bg-dark-700 text-sm">← Prev</button>
+                <button onclick="loadChatLogs(chatLogsPage+1)" class="px-3 py-1 rounded bg-dark-800 hover:bg-dark-700 text-sm">Next →</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Feedback Tab -->
+        <section id="tab-feedback" class="tab-content hidden fade-in">
+          <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Total Ratings</span>
+              <div class="text-2xl font-bold text-white" id="fbTotal">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">Satisfaction</span>
+              <div class="text-2xl font-bold text-green-400" id="fbSatisfaction">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">👍 Positive</span>
+              <div class="text-2xl font-bold text-green-400" id="fbPositive">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">👎 Negative</span>
+              <div class="text-2xl font-bold text-red-400" id="fbNegative">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <span class="text-dark-400 text-sm">⚠️ Unreviewed</span>
+              <div class="text-2xl font-bold text-yellow-400" id="fbUnreviewed">-</div>
+            </div>
+          </div>
+          <div class="grid lg:grid-cols-2 gap-4 mb-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold mb-4">📈 Satisfaction Trend (14 days)</h3>
+              <div style="position:relative;height:250px;width:100%"><canvas id="satisfactionChart"></canvas></div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold mb-4">📊 Report Breakdown</h3>
+              <div id="reportBreakdown" class="space-y-2"></div>
+            </div>
+          </div>
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-4">
+            <div class="flex gap-3 items-center">
+              <select id="fbFilterType" class="input-field w-auto" onchange="loadFeedback()">
+                <option value="">All Types</option>
+                <option value="positive">Positive</option>
+                <option value="negative">Negative</option>
+                <option value="skipped">Skipped</option>
+              </select>
+              <label class="flex items-center gap-2 text-sm text-dark-300">
+                <input type="checkbox" id="fbFilterReported" onchange="loadFeedback()"> Reports Only
+              </label>
+            </div>
+          </div>
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden">
+            <table class="w-full">
+              <thead><tr class="border-b border-dark-800 text-left text-sm text-dark-400">
+                <th class="px-4 py-3">Rater</th>
+                <th class="px-4 py-3">Rated User</th>
+                <th class="px-4 py-3">Type</th>
+                <th class="px-4 py-3">Report</th>
+                <th class="px-4 py-3">Date</th>
+                <th class="px-4 py-3">Actions</th>
+              </tr></thead>
+              <tbody id="feedbackBody"></tbody>
+            </table>
+            <div class="p-3 border-t border-dark-800 flex justify-between items-center">
+              <span class="text-sm text-dark-400" id="fbPageInfo">Page 1</span>
+              <div class="flex gap-2">
+                <button onclick="loadFeedback(feedbackPage-1)" class="px-3 py-1 rounded bg-dark-800 hover:bg-dark-700 text-sm">← Prev</button>
+                <button onclick="loadFeedback(feedbackPage+1)" class="px-3 py-1 rounded bg-dark-800 hover:bg-dark-700 text-sm">Next →</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Alerts Tab -->
+        <section id="tab-alerts" class="tab-content hidden fade-in">
+          <div class="flex justify-between items-center mb-4">
+            <div class="flex items-center gap-3">
+              <h3 class="font-semibold text-white">System Alerts</h3>
+              <span class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full" id="alertBadge">0</span>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="markAllAlertsRead()" class="bg-dark-800 hover:bg-dark-700 px-3 py-2 rounded-lg text-sm">✅ Mark All Read</button>
+              <button onclick="clearAlerts()" class="bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-2 rounded-lg text-sm">🗑️ Clear All</button>
+            </div>
+          </div>
+          <div id="alertsList" class="space-y-2"></div>
+          <div id="noAlerts" class="text-center text-dark-500 py-12 hidden">No alerts</div>
+        </section>
+
+        <!-- Rate Limits Tab -->
+        <section id="tab-ratelimits" class="tab-content hidden fade-in">
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-6">
+            <h3 class="font-semibold text-white mb-6">🚦 Rate Limiting Configuration</h3>
+            <div class="grid md:grid-cols-2 gap-6">
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Max Messages / Minute</label>
+                <input type="number" id="rlMaxMsg" class="input-field" min="1" max="200">
+                <p class="text-xs text-dark-500 mt-1">Maximum messages a user can send per minute</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Chat Cooldown (seconds)</label>
+                <input type="number" id="rlChatCooldown" class="input-field" min="0" max="300">
+                <p class="text-xs text-dark-500 mt-1">Seconds between allowed chat searches</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Search Cooldown (seconds)</label>
+                <input type="number" id="rlSearchCooldown" class="input-field" min="0" max="300">
+                <p class="text-xs text-dark-500 mt-1">Cooldown between partner searches</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Broadcast Delay (ms)</label>
+                <input type="number" id="rlBroadcastDelay" class="input-field" min="10" max="5000">
+                <p class="text-xs text-dark-500 mt-1">Delay between broadcast messages</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Max Daily Chats</label>
+                <input type="number" id="rlMaxDailyChats" class="input-field" min="1" max="1000">
+                <p class="text-xs text-dark-500 mt-1">Maximum chats per user per day</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Spam Detection Threshold</label>
+                <input type="number" id="rlSpamThreshold" class="input-field" min="1" max="50">
+                <p class="text-xs text-dark-500 mt-1">Messages before spam warning triggers</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">API Rate Limit (reqs)</label>
+                <input type="number" id="rlApiLimit" class="input-field" min="10" max="1000">
+                <p class="text-xs text-dark-500 mt-1">Admin API requests per window</p>
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">API Rate Window (seconds)</label>
+                <input type="number" id="rlApiWindow" class="input-field" min="10" max="3600">
+                <p class="text-xs text-dark-500 mt-1">Time window for API rate limiting</p>
+              </div>
+            </div>
+            <button onclick="saveRateLimits()" class="btn-primary px-6 py-2.5 rounded-lg text-white mt-6">💾 Save Rate Limits</button>
+          </div>
+        </section>
+
+        <!-- Feature Flags Tab -->
+        <section id="tab-featureflags" class="tab-content hidden fade-in">
+          <div class="grid lg:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-6">
+              <h3 class="font-semibold text-white mb-4">🔧 Feature Toggles</h3>
+              <div id="featureFlagsList" class="space-y-3"></div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-6">
+              <h3 class="font-semibold text-white mb-4">🧪 A/B Tests</h3>
+              <div class="mb-4 p-4 bg-dark-800 rounded-lg">
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                  <input type="text" id="abTestName" class="input-field" placeholder="Test Name">
+                  <input type="text" id="abTestFlag" class="input-field" placeholder="Feature Flag Key">
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                  <input type="number" id="abTestPercent" class="input-field" placeholder="% of users" min="1" max="100">
+                  <input type="text" id="abTestDesc" class="input-field" placeholder="Description">
+                </div>
+                <button onclick="createAbTest()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white w-full">➕ Create A/B Test</button>
+              </div>
+              <div id="abTestsList" class="space-y-2"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Reports Tab -->
+        <section id="tab-reports" class="tab-content hidden fade-in">
+          <div class="grid lg:grid-cols-2 gap-4">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-6">
+              <h3 class="font-semibold text-white mb-4">📋 Automated Reports Configuration</h3>
+              <div class="space-y-4">
+                <label class="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" id="reportEnabled" class="w-5 h-5 rounded bg-dark-800 border-dark-600">
+                  <span class="text-white">Enable Automated Reports</span>
+                </label>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Frequency</label>
+                  <select id="reportFrequency" class="input-field">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-2">Send to Telegram Chat ID</label>
+                  <input type="text" id="reportChatId" class="input-field" placeholder="Telegram Chat ID">
+                </div>
+                <div class="space-y-2">
+                  <label class="block text-sm text-dark-300 mb-1">Include in Report</label>
+                  <label class="flex items-center gap-2 text-sm text-dark-300"><input type="checkbox" id="reportIncRevenue" checked> Revenue Stats</label>
+                  <label class="flex items-center gap-2 text-sm text-dark-300"><input type="checkbox" id="reportIncUsers" checked> User Stats</label>
+                  <label class="flex items-center gap-2 text-sm text-dark-300"><input type="checkbox" id="reportIncChats" checked> Chat Stats</label>
+                  <label class="flex items-center gap-2 text-sm text-dark-300"><input type="checkbox" id="reportIncErrors" checked> Error Stats</label>
+                </div>
+                <div class="flex gap-3">
+                  <button onclick="saveReportConfig()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white flex-1">💾 Save Config</button>
+                  <button onclick="sendReportNow()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm text-white flex-1">📤 Send Now</button>
+                </div>
+              </div>
+              <div id="reportLastSent" class="mt-4 text-xs text-dark-500"></div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-6">
+              <h3 class="font-semibold text-white mb-4">📊 Revenue Deep Dive</h3>
+              <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">ARPU</span>
+                  <div class="text-xl font-bold text-white" id="rdArpu">-</div>
+                </div>
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">Paying Users</span>
+                  <div class="text-xl font-bold text-blue-400" id="rdPayingUsers">-</div>
+                </div>
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">This Week</span>
+                  <div class="text-xl font-bold text-green-400" id="rdThisWeek">-</div>
+                </div>
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">Week Change</span>
+                  <div class="text-xl font-bold" id="rdWeekChange">-</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">VIP Revenue</span>
+                  <div class="text-lg font-bold text-yellow-400" id="rdVipTotal">-</div>
+                </div>
+                <div class="bg-dark-800 rounded-lg p-3">
+                  <span class="text-dark-400 text-xs">Lock Revenue</span>
+                  <div class="text-lg font-bold text-purple-400" id="rdLockTotal">-</div>
+                </div>
+              </div>
+              <h4 class="text-sm font-semibold text-dark-300 mb-2">🏆 Top Spenders</h4>
+              <div id="topSpenders" class="space-y-1 max-h-48 overflow-y-auto"></div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   </div>
@@ -1145,6 +1460,8 @@
           <button onclick="removeVip()" class="btn-warning px-4 py-2 rounded-lg text-sm text-white">❌ Remove VIP</button>
           <button onclick="banUser()" class="btn-danger px-4 py-2 rounded-lg text-sm text-white">🚫 Ban User</button>
           <button onclick="unbanUser()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">✅ Unban</button>
+          <button onclick="showBanReasonModal(selectedUserId)" class="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg text-sm text-white col-span-2">📝 Ban with Reason</button>
+          <button onclick="viewUserProfile(selectedUserId)" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm text-white col-span-2">👤 View Full Profile</button>
         </div>
         <div class="pt-3 border-t border-dark-800">
           <label class="block text-sm text-dark-300 mb-2">Give VIP Duration</label>
@@ -1158,6 +1475,49 @@
           </select>
           <button onclick="sendMessageToUser()" class="w-full bg-dark-800 hover:bg-dark-700 px-4 py-2 rounded-lg text-sm">📨 Send Message</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Profile Modal -->
+  <div id="profileModal" class="modal">
+    <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-2xl m-4 fade-in max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-white">👤 User Profile</h3>
+        <button onclick="closeModal('profileModal')" class="text-dark-400 hover:text-white text-xl">&times;</button>
+      </div>
+      <div id="profileContent" class="space-y-4">
+        <p class="text-dark-400">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ban With Reason Modal -->
+  <div id="banReasonModal" class="modal">
+    <div class="bg-dark-900 rounded-xl border border-dark-800 p-6 w-full max-w-md m-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-white">🚫 Ban User</h3>
+        <button onclick="closeModal('banReasonModal')" class="text-dark-400 hover:text-white">&times;</button>
+      </div>
+      <input type="hidden" id="banReasonUserId">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Reason</label>
+          <textarea id="banReason" class="input-field" rows="3" placeholder="Enter ban reason..."></textarea>
+        </div>
+        <div>
+          <label class="block text-sm text-dark-300 mb-1">Ban Duration</label>
+          <select id="banDuration" class="input-field">
+            <option value="">Permanent</option>
+            <option value="1">1 Day</option>
+            <option value="3">3 Days</option>
+            <option value="7">7 Days</option>
+            <option value="14">14 Days</option>
+            <option value="30">30 Days</option>
+            <option value="90">90 Days</option>
+          </select>
+        </div>
+        <button onclick="submitBanWithReason()" class="btn-danger px-4 py-2 rounded-lg text-sm text-white w-full">🚫 Confirm Ban</button>
       </div>
     </div>
   </div>
@@ -1411,6 +1771,12 @@
         lockchat: 'Lock Chat', 
         broadcast: 'Broadcast',
         scheduled: 'Scheduled Broadcasts',
+        chatlogs: 'Chat Logs',
+        feedback: 'User Feedback & Reports',
+        alerts: 'System Alerts',
+        ratelimits: 'Rate Limiting',
+        featureflags: 'Feature Flags & A/B Tests',
+        reports: 'Reports & Revenue Deep Dive',
         monitoring: 'System Monitoring',
         messages: 'Bot Messages', 
         config: 'Configuration', 
@@ -1434,6 +1800,12 @@
       if (tab === 'audit') loadAuditLogs();
       if (tab === 'maintenance') loadMaintenanceStatus();
       if (tab === 'live') loadLiveUsers();
+      if (tab === 'chatlogs') loadChatLogs();
+      if (tab === 'feedback') loadFeedback();
+      if (tab === 'alerts') loadAlerts();
+      if (tab === 'ratelimits') loadRateLimits();
+      if (tab === 'featureflags') loadFeatureFlags();
+      if (tab === 'reports') { loadReportConfig(); loadRevenueDeepDive(); }
     }
 
     // Stats
@@ -3351,6 +3723,507 @@
       } catch (err) {
         console.error('Failed to load bots for broadcast:', err);
       }
+    }
+
+    // ==================== FEATURE 1: USER PROFILE ====================
+    async function viewUserProfile(userId) {
+      if (!userId) return toast('No user selected', 'error');
+      closeModal('userModal');
+      document.getElementById('profileModal').classList.add('active');
+      document.getElementById('profileContent').innerHTML = '<p class="text-dark-400">Loading profile...</p>';
+      
+      try {
+        const data = await api(`/users/profile/${userId}`);
+        const u = data.user;
+        const vipStatus = data.vip ? `<span class="text-yellow-400">⭐ VIP until ${new Date(data.vip.expiresAt).toLocaleDateString()}</span>` : '<span class="text-dark-500">No VIP</span>';
+        const banStatus = u.banned ? '<span class="text-red-400">🚫 Banned</span>' : '<span class="text-green-400">✅ Active</span>';
+        
+        document.getElementById('profileContent').innerHTML = `
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-800 rounded-lg p-4">
+              <h4 class="font-semibold text-white mb-3">Basic Info</h4>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-dark-400">User ID</span><span class="font-mono">${u.userId}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Username</span><span>${u.username ? '@' + u.username : '-'}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Name</span><span>${u.firstName || ''} ${u.lastName || ''}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Gender</span><span>${u.gender || '-'}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Age</span><span>${u.age || '-'}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Bot</span><span>${u.botId}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Status</span>${banStatus}</div>
+                <div class="flex justify-between"><span class="text-dark-400">VIP</span>${vipStatus}</div>
+                <div class="flex justify-between"><span class="text-dark-400">Registered</span><span>${new Date(u.createdAt).toLocaleDateString()}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Last Active</span><span>${u.lastActiveDate || '-'}</span></div>
+              </div>
+            </div>
+            <div class="bg-dark-800 rounded-lg p-4">
+              <h4 class="font-semibold text-white mb-3">Activity Stats</h4>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold text-blue-400">${data.totalChats}</div><div class="text-xs text-dark-400">Total Chats</div></div>
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold text-green-400">${data.activeChats}</div><div class="text-xs text-dark-400">Active Chats</div></div>
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold text-yellow-400">${data.totalSpent} ⭐</div><div class="text-xs text-dark-400">Total Spent</div></div>
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold text-purple-400">${data.lockCredits} min</div><div class="text-xs text-dark-400">Lock Credits</div></div>
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold text-cyan-400">${data.referralsMade}</div><div class="text-xs text-dark-400">Referrals</div></div>
+                <div class="text-center p-2 bg-dark-900 rounded"><div class="text-xl font-bold">${u.dailyStreak || 0}</div><div class="text-xs text-dark-400">Daily Streak</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-dark-800 rounded-lg p-4">
+              <h4 class="font-semibold text-white mb-3">Ratings</h4>
+              <div class="space-y-1 text-sm">
+                <div class="flex justify-between"><span class="text-dark-400">Given</span><span>${data.ratings.given}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">Received</span><span>${data.ratings.received}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">👍 Positive</span><span class="text-green-400">${data.ratings.positive}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">👎 Negative</span><span class="text-red-400">${data.ratings.negative}</span></div>
+                <div class="flex justify-between"><span class="text-dark-400">⚠️ Reports</span><span class="text-yellow-400">${data.ratings.reports}</span></div>
+              </div>
+            </div>
+            <div class="bg-dark-800 rounded-lg p-4">
+              <h4 class="font-semibold text-white mb-3">Recent Transactions</h4>
+              <div class="space-y-1 text-sm max-h-40 overflow-y-auto">
+                ${data.transactions.length > 0 ? data.transactions.map(t => `
+                  <div class="flex justify-between text-xs"><span class="text-dark-400">${new Date(t.createdAt).toLocaleDateString()}</span><span>${t.amount} ⭐ ${t.payload || ''}</span></div>
+                `).join('') : '<p class="text-dark-500">No transactions</p>'}
+              </div>
+            </div>
+          </div>
+          ${data.banHistory.length > 0 ? `
+          <div class="bg-dark-800 rounded-lg p-4">
+            <h4 class="font-semibold text-white mb-3">Ban History</h4>
+            <div class="space-y-1 text-sm max-h-32 overflow-y-auto">
+              ${data.banHistory.map(b => `
+                <div class="flex justify-between text-xs"><span class="text-dark-400">${new Date(b.createdAt).toLocaleDateString()}</span><span>${b.reason || 'No reason'}</span></div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+          <div class="flex gap-2 pt-2">
+            <button onclick="showBanReasonModal('${u.userId}')" class="bg-red-600/20 hover:bg-red-600/30 text-red-400 px-4 py-2 rounded-lg text-sm flex-1">🚫 Ban</button>
+            <button onclick="closeModal('profileModal');openUserModal('${u.userId}')" class="bg-dark-700 hover:bg-dark-600 px-4 py-2 rounded-lg text-sm flex-1">⚡ Quick Actions</button>
+          </div>`;
+      } catch (err) {
+        document.getElementById('profileContent').innerHTML = `<p class="text-red-400">Error: ${err.message}</p>`;
+      }
+    }
+
+    // ==================== FEATURE 2: CHAT LOGS ====================
+    let chatLogsPage = 1;
+    async function loadChatLogs(page = 1) {
+      if (page < 1) return;
+      chatLogsPage = page;
+      try {
+        const status = document.getElementById('clFilterStatus').value;
+        const userId = document.getElementById('clFilterUserId').value;
+        const params = new URLSearchParams({ page, limit: 25 });
+        if (status) params.set('status', status);
+        if (userId) params.set('userId', userId);
+        
+        const [logsData, statsData] = await Promise.all([
+          api(`/chatlogs?${params}`),
+          api('/chatlogs/stats')
+        ]);
+        
+        document.getElementById('clTotalChats').textContent = statsData.totalChats.toLocaleString();
+        document.getElementById('clActiveChats').textContent = statsData.activeChats;
+        document.getElementById('clTodayChats').textContent = statsData.todayChats;
+        const avgMin = Math.round(statsData.avgDurationSeconds / 60);
+        document.getElementById('clAvgDuration').textContent = avgMin > 0 ? avgMin + ' min' : '-';
+        
+        document.getElementById('chatLogsBody').innerHTML = logsData.chats.map(chat => {
+          const u1 = chat.firstUser || {};
+          const u2 = chat.secondUser || {};
+          return `<tr class="hover:bg-dark-800/50 border-b border-dark-800/50">
+            <td class="px-4 py-3 font-mono text-xs">${chat.id}</td>
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${chat.user1}')">${u1.username ? '@' + u1.username : chat.user1}</span></td>
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${chat.user2}')">${u2.username ? '@' + u2.username : chat.user2}</span></td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs ${chat.active ? 'bg-green-500/20 text-green-400' : 'bg-dark-700 text-dark-400'}">${chat.active ? 'Active' : 'Ended'}</span></td>
+            <td class="px-4 py-3 text-xs text-dark-400">${new Date(chat.startedAt).toLocaleString()}</td>
+            <td class="px-4 py-3"><button onclick="spyChat('${chat.user1}','${chat.user2}')" class="text-xs text-blue-400 hover:text-blue-300">👁️ View</button></td>
+          </tr>`;
+        }).join('');
+        
+        document.getElementById('clPageInfo').textContent = `Page ${logsData.page} of ${logsData.totalPages} (${logsData.total} total)`;
+      } catch (err) {
+        console.error('Chat logs error:', err);
+      }
+    }
+
+    // ==================== FEATURE 3: ALERTS ====================
+    async function loadAlerts() {
+      try {
+        const data = await api('/alerts');
+        document.getElementById('alertBadge').textContent = data.unreadCount;
+        
+        if (data.alerts.length === 0) {
+          document.getElementById('noAlerts').classList.remove('hidden');
+          document.getElementById('alertsList').innerHTML = '';
+          return;
+        }
+        document.getElementById('noAlerts').classList.add('hidden');
+        
+        document.getElementById('alertsList').innerHTML = data.alerts.map(alert => {
+          const colors = { critical: 'border-red-500 bg-red-500/10', warning: 'border-yellow-500 bg-yellow-500/10', info: 'border-blue-500 bg-blue-500/10' };
+          const icons = { critical: '🔴', warning: '⚠️', info: 'ℹ️' };
+          return `<div class="p-3 rounded-lg border ${colors[alert.severity] || colors.info} ${alert.read ? 'opacity-60' : ''}">
+            <div class="flex justify-between items-start">
+              <div class="flex gap-2 items-start">
+                <span>${icons[alert.severity] || '📌'}</span>
+                <div>
+                  <p class="text-sm font-medium text-white">${escapeHtml(alert.message)}</p>
+                  <p class="text-xs text-dark-400 mt-1">${alert.type} • ${new Date(alert.timestamp).toLocaleString()}</p>
+                </div>
+              </div>
+              ${!alert.read ? `<button onclick="markAlertRead(${alert.id})" class="text-xs text-dark-400 hover:text-white">✓</button>` : ''}
+            </div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        console.error('Load alerts error:', err);
+      }
+    }
+
+    async function markAlertRead(id) {
+      try { await api('/alerts/read', { method: 'POST', body: { alertIds: [id] } }); loadAlerts(); } catch(e) {}
+    }
+    async function markAllAlertsRead() {
+      try { await api('/alerts/read', { method: 'POST', body: {} }); loadAlerts(); toast('All alerts marked as read', 'success'); } catch(e) {}
+    }
+    async function clearAlerts() {
+      if (!confirm('Clear all alerts?')) return;
+      try { await api('/alerts/clear', { method: 'POST' }); loadAlerts(); toast('Alerts cleared', 'success'); } catch(e) {}
+    }
+
+    // ==================== FEATURE 4: BAN WITH REASON ====================
+    function showBanReasonModal(userId) {
+      document.getElementById('banReasonUserId').value = userId;
+      document.getElementById('banReason').value = '';
+      document.getElementById('banDuration').value = '';
+      closeModal('profileModal');
+      closeModal('userModal');
+      document.getElementById('banReasonModal').classList.add('active');
+    }
+
+    async function submitBanWithReason() {
+      const userId = document.getElementById('banReasonUserId').value;
+      const reason = document.getElementById('banReason').value;
+      const tempDays = document.getElementById('banDuration').value;
+      
+      try {
+        const result = await api(`/users/${userId}/ban-with-reason`, {
+          method: 'POST',
+          body: { reason, tempDays: tempDays ? parseInt(tempDays) : null }
+        });
+        toast(result.message || 'User banned', 'success');
+        closeModal('banReasonModal');
+        loadUsers();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    // ==================== FEATURE 5: REVENUE DEEP DIVE ====================
+    async function loadRevenueDeepDive() {
+      try {
+        const data = await api('/analytics/revenue-deep?days=30');
+        
+        document.getElementById('rdArpu').textContent = data.arpu + ' ⭐';
+        document.getElementById('rdPayingUsers').textContent = data.payingUsers;
+        document.getElementById('rdThisWeek').textContent = data.thisWeek + ' ⭐';
+        const change = parseFloat(data.weeklyChange);
+        document.getElementById('rdWeekChange').textContent = (change >= 0 ? '+' : '') + change + '%';
+        document.getElementById('rdWeekChange').className = `text-xl font-bold ${change >= 0 ? 'text-green-400' : 'text-red-400'}`;
+        
+        if (data.revenueByType) {
+          document.getElementById('rdVipTotal').textContent = (data.revenueByType.vip_total || 0) + ' ⭐';
+          document.getElementById('rdLockTotal').textContent = (data.revenueByType.lock_total || 0) + ' ⭐';
+        }
+        
+        document.getElementById('topSpenders').innerHTML = data.topSpenders.map((s, i) => `
+          <div class="flex justify-between items-center text-sm p-2 bg-dark-800 rounded">
+            <span class="flex items-center gap-2">
+              <span class="text-xs text-dark-500">#${i + 1}</span>
+              <span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${s.userId}')">${s.username ? '@' + s.username : s.firstName || s.userId}</span>
+            </span>
+            <span class="text-yellow-400 font-mono">${s.total_spent} ⭐ <span class="text-dark-500">(${s.txn_count} txns)</span></span>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('Revenue deep dive error:', err);
+      }
+    }
+
+    // ==================== FEATURE 6: TARGETED BROADCAST ====================
+    async function updateAudienceCount() {
+      try {
+        const target = document.getElementById('broadcastTarget').value;
+        const botId = document.getElementById('broadcastBot').value;
+        const activeDays = document.getElementById('broadcastActiveDays').value;
+        const minChats = document.getElementById('broadcastMinChats').value;
+        const params = new URLSearchParams({ target });
+        if (botId) params.set('botId', botId);
+        if (activeDays) params.set('activeDays', activeDays);
+        if (minChats) params.set('minChats', minChats);
+        
+        const data = await api(`/broadcast/audience-count?${params}`);
+        document.getElementById('audienceCount').textContent = data.count.toLocaleString();
+      } catch (err) {
+        document.getElementById('audienceCount').textContent = '?';
+      }
+    }
+
+    async function sendTargetedBroadcast() {
+      const message = document.getElementById('broadcastMessage').value;
+      if (!message) return toast('Message is required', 'error');
+      if (!confirm('Send targeted broadcast?')) return;
+      
+      try {
+        const data = await api('/broadcast/targeted', {
+          method: 'POST',
+          body: {
+            message,
+            target: document.getElementById('broadcastTarget').value,
+            botId: document.getElementById('broadcastBot').value,
+            activeDays: document.getElementById('broadcastActiveDays').value,
+            minChats: document.getElementById('broadcastMinChats').value
+          }
+        });
+        toast(`Broadcast sent: ${data.sent} delivered, ${data.failed} failed`, 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    // ==================== FEATURE 7: RATE LIMITS ====================
+    async function loadRateLimits() {
+      try {
+        const data = await api('/config/rate-limits');
+        document.getElementById('rlMaxMsg').value = data.maxMessagesPerMinute;
+        document.getElementById('rlChatCooldown').value = data.chatCooldownSeconds;
+        document.getElementById('rlSearchCooldown').value = data.searchCooldownSeconds;
+        document.getElementById('rlBroadcastDelay').value = data.broadcastDelayMs;
+        document.getElementById('rlMaxDailyChats').value = data.maxDailyChats;
+        document.getElementById('rlSpamThreshold').value = data.spamThreshold;
+        document.getElementById('rlApiLimit').value = data.apiRateLimit;
+        document.getElementById('rlApiWindow').value = data.apiRateWindowSec;
+      } catch (err) { console.error('Load rate limits error:', err); }
+    }
+
+    async function saveRateLimits() {
+      try {
+        await api('/config/rate-limits', {
+          method: 'POST',
+          body: {
+            maxMessagesPerMinute: parseInt(document.getElementById('rlMaxMsg').value),
+            chatCooldownSeconds: parseInt(document.getElementById('rlChatCooldown').value),
+            searchCooldownSeconds: parseInt(document.getElementById('rlSearchCooldown').value),
+            broadcastDelayMs: parseInt(document.getElementById('rlBroadcastDelay').value),
+            maxDailyChats: parseInt(document.getElementById('rlMaxDailyChats').value),
+            spamThreshold: parseInt(document.getElementById('rlSpamThreshold').value),
+            apiRateLimit: parseInt(document.getElementById('rlApiLimit').value),
+            apiRateWindowSec: parseInt(document.getElementById('rlApiWindow').value)
+          }
+        });
+        toast('Rate limits saved', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    // ==================== FEATURE 8: FEATURE FLAGS & A/B TESTS ====================
+    async function loadFeatureFlags() {
+      try {
+        const data = await api('/feature-flags');
+        
+        const flagLabels = {
+          ENABLE_STARS_PAYMENTS: '💳 Stars Payments',
+          ENABLE_VIP: '⭐ VIP System',
+          ENABLE_LOCK_CHAT: '🔒 Lock Chat',
+          ENABLE_REFERRALS: '🎁 Referrals',
+          ENABLE_ADMIN_ALERTS: '🔔 Admin Alerts',
+          ENABLE_CROSS_BOT_MATCHING: '🔄 Cross-Bot Matching',
+          ENABLE_AFFILIATE_SYSTEM: '💰 Affiliate System',
+          ENABLE_ABUSE_DETECTION: '🛡️ Abuse Detection',
+          MAINTENANCE_MODE: '🔧 Maintenance Mode'
+        };
+        
+        document.getElementById('featureFlagsList').innerHTML = Object.entries(data.flags).map(([flag, enabled]) => `
+          <label class="flex items-center justify-between p-3 bg-dark-800 rounded-lg cursor-pointer hover:bg-dark-700">
+            <span class="text-sm">${flagLabels[flag] || flag}</span>
+            <div class="relative">
+              <input type="checkbox" class="sr-only" ${enabled ? 'checked' : ''} onchange="toggleFeatureFlag('${flag}', this.checked)">
+              <div class="w-10 h-5 rounded-full ${enabled ? 'bg-green-500' : 'bg-dark-600'} transition-colors"></div>
+              <div class="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : ''}"></div>
+            </div>
+          </label>
+        `).join('');
+        
+        document.getElementById('abTestsList').innerHTML = data.abTests.length > 0 ? data.abTests.map(test => `
+          <div class="p-3 bg-dark-800 rounded-lg">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="font-medium text-sm text-white">${escapeHtml(test.name)}</span>
+                <p class="text-xs text-dark-400 mt-1">${escapeHtml(test.description || '')} • ${test.percentage}% of users • Flag: ${test.flag}</p>
+              </div>
+              <button onclick="deleteAbTest('${test.id}')" class="text-red-400 hover:text-red-300 text-sm">🗑️</button>
+            </div>
+          </div>
+        `).join('') : '<p class="text-dark-500 text-sm text-center py-4">No A/B tests configured</p>';
+      } catch (err) { console.error('Load feature flags error:', err); }
+    }
+
+    async function toggleFeatureFlag(flag, value) {
+      try {
+        await api('/feature-flags', { method: 'POST', body: { flag, value } });
+        toast(`${flag} ${value ? 'enabled' : 'disabled'}`, 'success');
+        loadFeatureFlags();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function createAbTest() {
+      const name = document.getElementById('abTestName').value;
+      const flag = document.getElementById('abTestFlag').value;
+      const percentage = document.getElementById('abTestPercent').value;
+      const description = document.getElementById('abTestDesc').value;
+      if (!name || !flag || !percentage) return toast('Fill all fields', 'error');
+      
+      try {
+        await api('/ab-tests', { method: 'POST', body: { name, flag, percentage, description } });
+        toast('A/B test created', 'success');
+        document.getElementById('abTestName').value = '';
+        document.getElementById('abTestFlag').value = '';
+        document.getElementById('abTestPercent').value = '';
+        document.getElementById('abTestDesc').value = '';
+        loadFeatureFlags();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function deleteAbTest(id) {
+      if (!confirm('Delete this A/B test?')) return;
+      try {
+        await api(`/ab-tests/${id}`, { method: 'DELETE' });
+        toast('A/B test deleted', 'success');
+        loadFeatureFlags();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    // ==================== FEATURE 9: REPORTS ====================
+    async function loadReportConfig() {
+      try {
+        const data = await api('/reports/config');
+        document.getElementById('reportEnabled').checked = data.enabled;
+        document.getElementById('reportFrequency').value = data.frequency;
+        document.getElementById('reportChatId').value = data.telegramChatId;
+        document.getElementById('reportIncRevenue').checked = data.includeRevenue;
+        document.getElementById('reportIncUsers').checked = data.includeUsers;
+        document.getElementById('reportIncChats').checked = data.includeChats;
+        document.getElementById('reportIncErrors').checked = data.includeErrors;
+        if (data.lastSentAt) {
+          document.getElementById('reportLastSent').textContent = 'Last sent: ' + new Date(data.lastSentAt).toLocaleString();
+        }
+      } catch (err) { console.error('Load report config error:', err); }
+    }
+
+    async function saveReportConfig() {
+      try {
+        await api('/reports/config', {
+          method: 'POST',
+          body: {
+            enabled: document.getElementById('reportEnabled').checked,
+            frequency: document.getElementById('reportFrequency').value,
+            telegramChatId: document.getElementById('reportChatId').value,
+            includeRevenue: document.getElementById('reportIncRevenue').checked,
+            includeUsers: document.getElementById('reportIncUsers').checked,
+            includeChats: document.getElementById('reportIncChats').checked,
+            includeErrors: document.getElementById('reportIncErrors').checked
+          }
+        });
+        toast('Report config saved', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function sendReportNow() {
+      try {
+        const data = await api('/reports/send-now', { method: 'POST' });
+        toast('Report sent to Telegram', 'success');
+        loadReportConfig();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    // ==================== FEATURE 10: FEEDBACK DASHBOARD ====================
+    let feedbackPage = 1;
+    let satisfactionChart = null;
+    
+    async function loadFeedback(page = 1) {
+      if (page < 1) return;
+      feedbackPage = page;
+      try {
+        const type = document.getElementById('fbFilterType').value;
+        const reported = document.getElementById('fbFilterReported').checked;
+        const params = new URLSearchParams({ page, limit: 25 });
+        if (type) params.set('type', type);
+        if (reported) params.set('reported', 'true');
+        
+        const data = await api(`/feedback?${params}`);
+        
+        document.getElementById('fbTotal').textContent = data.stats.total;
+        document.getElementById('fbSatisfaction').textContent = data.stats.satisfactionRate + '%';
+        document.getElementById('fbPositive').textContent = data.stats.positive;
+        document.getElementById('fbNegative').textContent = data.stats.negative;
+        document.getElementById('fbUnreviewed').textContent = data.stats.unreviewed;
+        
+        // Report breakdown
+        document.getElementById('reportBreakdown').innerHTML = data.reportBreakdown.map(r => {
+          const labels = { vcs_spam: '🔊 VCS/Spam', vulgar: '🤬 Vulgar', harassment: '😡 Harassment', underage: '👶 Underage', other: '❓ Other' };
+          return `<div class="flex justify-between items-center p-2 bg-dark-800 rounded">
+            <span class="text-sm">${labels[r.reportReason] || r.reportReason}</span>
+            <span class="text-sm font-bold text-yellow-400">${r.count}</span>
+          </div>`;
+        }).join('') || '<p class="text-dark-500 text-sm">No reports</p>';
+        
+        // Satisfaction chart
+        if (data.trend && data.trend.length > 0) {
+          const ctx = document.getElementById('satisfactionChart').getContext('2d');
+          if (satisfactionChart) satisfactionChart.destroy();
+          satisfactionChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: data.trend.map(d => d.date),
+              datasets: [
+                { label: 'Positive', data: data.trend.map(d => d.positive), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3 },
+                { label: 'Negative', data: data.trend.map(d => d.negative), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: { color: '#94a3b8' } } },
+              scales: { x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } } }
+            }
+          });
+        }
+        
+        // Feedback table
+        document.getElementById('feedbackBody').innerHTML = data.ratings.map(r => {
+          const typeColors = { positive: 'text-green-400', negative: 'text-red-400', skipped: 'text-dark-400' };
+          const typeIcons = { positive: '👍', negative: '👎', skipped: '⏭️' };
+          return `<tr class="hover:bg-dark-800/50 border-b border-dark-800/50">
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.raterId}')">${r.raterId}</span></td>
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.ratedUserId}')">${r.ratedUserId}</span></td>
+            <td class="px-4 py-3"><span class="${typeColors[r.ratingType] || ''}">${typeIcons[r.ratingType] || ''} ${r.ratingType}</span></td>
+            <td class="px-4 py-3 text-sm">${r.reportReason !== 'none' ? '<span class="text-yellow-400">⚠️ ' + r.reportReason + '</span>' : '-'}</td>
+            <td class="px-4 py-3 text-xs text-dark-400">${new Date(r.createdAt).toLocaleString()}</td>
+            <td class="px-4 py-3">
+              ${r.reportReason !== 'none' && !r.reviewed ? 
+                `<button onclick="reviewReport(${r.id})" class="text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/30">Review</button>` :
+                r.reviewed ? '<span class="text-xs text-green-400">✓ Reviewed</span>' : ''}
+            </td>
+          </tr>`;
+        }).join('');
+        
+        document.getElementById('fbPageInfo').textContent = `Page ${data.page} of ${data.totalPages} (${data.total} total)`;
+      } catch (err) { console.error('Load feedback error:', err); }
+    }
+
+    async function reviewReport(id) {
+      const action = prompt('Action taken (e.g. warned, banned, no action):');
+      if (action === null) return;
+      try {
+        await api(`/feedback/${id}/review`, { method: 'POST', body: { actionTaken: action } });
+        toast('Report reviewed', 'success');
+        loadFeedback(feedbackPage);
+      } catch (err) { toast(err.message, 'error'); }
     }
 
     // Init

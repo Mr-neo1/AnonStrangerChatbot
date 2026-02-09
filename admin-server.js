@@ -3598,6 +3598,692 @@ app.get('/api/admin/errors/export', requireAuth, async (req, res) => {
   }
 });
 
+// ==================== FEATURE 1: USER SEARCH & PROFILE ====================
+app.get('/api/admin/users/profile/:userId', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { Chat, StarTransaction, Referral, ChatRating } = require('./models');
+    
+    const user = await User.findOne({ where: { userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // VIP
+    const vip = await VipSubscription.findOne({ where: { userId } });
+    
+    // Transactions
+    const transactions = await StarTransaction.findAll({ where: { userId }, order: [['createdAt', 'DESC']], limit: 20 });
+    const totalSpent = await StarTransaction.sum('amount', { where: { userId } }) || 0;
+    
+    // Chats
+    const totalChats = await Chat.count({ where: { [Op.or]: [{ user1: userId }, { user2: userId }] } });
+    const activeChats = await Chat.count({ where: { [Op.or]: [{ user1: userId }, { user2: userId }], active: true } });
+    
+    // Referrals
+    const referralsMade = await Referral.count({ where: { inviterId: userId } });
+    const referredBy = await Referral.findOne({ where: { invitedId: userId, status: 'accepted' } });
+    
+    // Ratings
+    const ratingsGiven = await ChatRating.count({ where: { raterId: userId } });
+    const ratingsReceived = await ChatRating.count({ where: { ratedUserId: userId } });
+    const positiveRatings = await ChatRating.count({ where: { ratedUserId: userId, ratingType: 'positive' } });
+    const negativeRatings = await ChatRating.count({ where: { ratedUserId: userId, ratingType: 'negative' } });
+    const reports = await ChatRating.count({ where: { ratedUserId: userId, reportReason: { [Op.ne]: 'none' } } });
+    
+    // Lock credits
+    const { LockCredit } = require('./models');
+    const lockCredits = await LockCredit.findAll({ where: { telegramId: userId } });
+    const totalLockMinutes = lockCredits.reduce((sum, lc) => sum + (lc.minutes - lc.consumed), 0);
+    
+    // Ban history
+    const { Bans } = require('./models');
+    const banHistory = await Bans.findAll({ where: { userId }, order: [['createdAt', 'DESC']], limit: 10 });
+
+    res.json({
+      user: user.toJSON(),
+      vip: vip ? vip.toJSON() : null,
+      transactions: transactions.map(t => t.toJSON()),
+      totalSpent,
+      totalChats,
+      activeChats,
+      referralsMade,
+      referredBy: referredBy ? referredBy.inviterId : null,
+      ratings: { given: ratingsGiven, received: ratingsReceived, positive: positiveRatings, negative: negativeRatings, reports },
+      lockCredits: totalLockMinutes,
+      banHistory: banHistory.map(b => b.toJSON())
+    });
+  } catch (error) {
+    console.error('User profile error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 2: CHAT LOGS VIEWER ====================
+app.get('/api/admin/chatlogs', requireAuth, async (req, res) => {
+  try {
+    const { Chat } = require('./models');
+    const { page = 1, limit = 25, status, userId, sortBy = 'startedAt', sortOrder = 'DESC' } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const where = {};
+    if (status === 'active') where.active = true;
+    else if (status === 'ended') where.active = false;
+    if (userId) where[Op.or] = [{ user1: userId }, { user2: userId }];
+    
+    const { count, rows } = await Chat.findAndCountAll({
+      where,
+      order: [[sortBy, sortOrder]],
+      limit: parseInt(limit),
+      offset,
+      include: [
+        { model: User, as: 'firstUser', attributes: ['userId', 'username', 'firstName', 'banned', 'botId'] },
+        { model: User, as: 'secondUser', attributes: ['userId', 'username', 'firstName', 'banned', 'botId'] }
+      ]
+    });
+    
+    res.json({ chats: rows, total: count, page: parseInt(page), totalPages: Math.ceil(count / parseInt(limit)) });
+  } catch (error) {
+    console.error('Chat logs error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/chatlogs/stats', requireAuth, async (req, res) => {
+  try {
+    const { Chat } = require('./models');
+    const totalChats = await Chat.count();
+    const activeChats = await Chat.count({ where: { active: true } });
+    const todayChats = await Chat.count({ where: { startedAt: { [Op.gte]: new Date(new Date().setHours(0,0,0,0)) } } });
+    
+    // Average duration of ended chats (raw SQL for performance)
+    const [avgResult] = await sequelize.query(
+      `SELECT AVG(EXTRACT(EPOCH FROM ("updatedAt" - "startedAt"))) as avg_seconds FROM "Chats" WHERE active = false AND "updatedAt" > "startedAt"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    res.json({ totalChats, activeChats, todayChats, avgDurationSeconds: Math.round(avgResult?.avg_seconds || 0) });
+  } catch (error) {
+    console.error('Chat logs stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 3: ALERTS SYSTEM ====================
+const adminAlerts = [];
+const MAX_ALERTS = 200;
+
+function addAlert(type, severity, message, details = {}) {
+  adminAlerts.unshift({ id: Date.now(), type, severity, message, details, timestamp: new Date(), read: false });
+  if (adminAlerts.length > MAX_ALERTS) adminAlerts.pop();
+}
+
+// Track error rates for auto-alerts  
+let errorRateTracker = { count: 0, lastReset: Date.now() };
+const origLogError = logError;
+logError = function(error, context) {
+  origLogError(error, context);
+  errorRateTracker.count++;
+  if (errorRateTracker.count > 10 && Date.now() - errorRateTracker.lastReset < 60000) {
+    addAlert('error_spike', 'critical', `Error rate spike: ${errorRateTracker.count} errors in last minute`, { count: errorRateTracker.count });
+  }
+  if (Date.now() - errorRateTracker.lastReset > 60000) {
+    errorRateTracker = { count: 0, lastReset: Date.now() };
+  }
+};
+
+app.get('/api/admin/alerts', requireAuth, async (req, res) => {
+  try {
+    const unreadCount = adminAlerts.filter(a => !a.read).length;
+    res.json({ alerts: adminAlerts.slice(0, 50), unreadCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/alerts/read', requireAuth, async (req, res) => {
+  try {
+    const { alertIds } = req.body;
+    if (alertIds && Array.isArray(alertIds)) {
+      alertIds.forEach(id => { const a = adminAlerts.find(a => a.id === id); if (a) a.read = true; });
+    } else {
+      adminAlerts.forEach(a => a.read = true);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/alerts/clear', requireAuth, async (req, res) => {
+  try {
+    adminAlerts.length = 0;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 4: BLACKLIST WITH REASONS & TEMP BANS ====================
+app.post('/api/admin/users/:userId/ban-with-reason', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason, tempDays } = req.body;
+    const { Bans } = require('./models');
+    const AuditService = require('./services/auditService');
+    
+    const user = await User.findOne({ where: { userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    await user.update({ banned: true });
+    await Bans.create({ userId, reason: reason || 'No reason provided' });
+    
+    // If temporary ban, schedule unban
+    if (tempDays && tempDays > 0) {
+      const unbanAt = new Date(Date.now() + tempDays * 86400000);
+      // Store in AppConfig for the cleanup job
+      const { AppConfig } = require('./models');
+      const tempBans = JSON.parse(await AppConfig.getValue('temp_bans') || '[]');
+      tempBans.push({ userId, unbanAt: unbanAt.toISOString(), reason });
+      await AppConfig.setValue('temp_bans', JSON.stringify(tempBans));
+    }
+    
+    await AuditService.log({ adminId: req.adminId, category: 'user', action: tempDays ? `temp_ban_${tempDays}d` : 'ban_with_reason', targetId: String(userId), details: { reason, tempDays }, success: true }).catch(() => {});
+    addAlert('user_banned', 'info', `User ${userId} banned: ${reason}`, { userId, reason, tempDays });
+    
+    res.json({ success: true, message: tempDays ? `User banned for ${tempDays} days` : 'User banned permanently' });
+  } catch (error) {
+    console.error('Ban with reason error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/users/ban-history/:userId', requireAuth, async (req, res) => {
+  try {
+    const { Bans } = require('./models');
+    const bans = await Bans.findAll({ where: { userId: req.params.userId }, order: [['createdAt', 'DESC']] });
+    res.json({ bans });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Process temp bans - check and auto-unban
+app.post('/api/admin/system/process-temp-bans', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const tempBans = JSON.parse(await AppConfig.getValue('temp_bans') || '[]');
+    const now = new Date();
+    let unbanned = 0;
+    
+    const remaining = [];
+    for (const ban of tempBans) {
+      if (new Date(ban.unbanAt) <= now) {
+        await User.update({ banned: false }, { where: { userId: ban.userId } });
+        unbanned++;
+      } else {
+        remaining.push(ban);
+      }
+    }
+    
+    await AppConfig.setValue('temp_bans', JSON.stringify(remaining));
+    res.json({ success: true, unbanned, remaining: remaining.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 5: REVENUE DEEP DIVE ====================
+app.get('/api/admin/analytics/revenue-deep', requireAuth, async (req, res) => {
+  try {
+    const { StarTransaction, Chat } = require('./models');
+    const { days = 30 } = req.query;
+    const since = new Date(Date.now() - parseInt(days) * 86400000);
+    
+    // Daily revenue breakdown
+    const dailyRevenue = await sequelize.query(
+      `SELECT DATE("createdAt") as date, 
+              SUM(amount) as revenue, 
+              COUNT(*) as transactions,
+              SUM(CASE WHEN payload LIKE '%vip%' THEN amount ELSE 0 END) as vip_revenue,
+              SUM(CASE WHEN payload LIKE '%lock%' THEN amount ELSE 0 END) as lock_revenue
+       FROM "StarTransactions" WHERE "createdAt" >= :since GROUP BY DATE("createdAt") ORDER BY date DESC`,
+      { replacements: { since }, type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // ARPU (Average Revenue Per User)
+    const [arpuResult] = await sequelize.query(
+      `SELECT COUNT(DISTINCT "userId") as paying_users, SUM(amount) as total_revenue FROM "StarTransactions"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    const arpu = arpuResult.paying_users > 0 ? (arpuResult.total_revenue / arpuResult.paying_users).toFixed(2) : 0;
+    
+    // Revenue by type (VIP vs Lock)
+    const [revenueByType] = await sequelize.query(
+      `SELECT 
+        SUM(CASE WHEN payload LIKE '%vip%' THEN amount ELSE 0 END) as vip_total,
+        SUM(CASE WHEN payload LIKE '%lock%' THEN amount ELSE 0 END) as lock_total,
+        SUM(amount) as grand_total,
+        COUNT(CASE WHEN payload LIKE '%vip%' THEN 1 END) as vip_count,
+        COUNT(CASE WHEN payload LIKE '%lock%' THEN 1 END) as lock_count
+       FROM "StarTransactions"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Top spenders
+    const topSpenders = await sequelize.query(
+      `SELECT st."userId", SUM(st.amount) as total_spent, COUNT(*) as txn_count, u.username, u."firstName"
+       FROM "StarTransactions" st LEFT JOIN "User" u ON st."userId" = u."userId"
+       GROUP BY st."userId", u.username, u."firstName"
+       ORDER BY total_spent DESC LIMIT 10`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Weekly comparison
+    const thisWeek = await StarTransaction.sum('amount', { where: { createdAt: { [Op.gte]: new Date(Date.now() - 7 * 86400000) } } }) || 0;
+    const lastWeek = await StarTransaction.sum('amount', { where: { createdAt: { [Op.between]: [new Date(Date.now() - 14 * 86400000), new Date(Date.now() - 7 * 86400000)] } } }) || 0;
+    const weeklyChange = lastWeek > 0 ? (((thisWeek - lastWeek) / lastWeek) * 100).toFixed(1) : 0;
+    
+    res.json({ dailyRevenue, arpu, revenueByType, topSpenders, thisWeek, lastWeek, weeklyChange, payingUsers: parseInt(arpuResult.paying_users) || 0 });
+  } catch (error) {
+    console.error('Revenue deep dive error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 6: BROADCAST TARGETING ====================
+app.get('/api/admin/broadcast/audience-count', requireAuth, async (req, res) => {
+  try {
+    const { target, botId, activeDays, minChats } = req.query;
+    let where = { hasStarted: true };
+    
+    if (target === 'vip') {
+      const vipUsers = await VipSubscription.findAll({ where: { expiresAt: { [Op.gte]: new Date() } }, attributes: ['userId'] });
+      where.userId = { [Op.in]: vipUsers.map(v => v.userId) };
+    } else if (target === 'non_vip') {
+      const vipUsers = await VipSubscription.findAll({ where: { expiresAt: { [Op.gte]: new Date() } }, attributes: ['userId'] });
+      where.userId = { [Op.notIn]: vipUsers.map(v => v.userId) };
+    } else if (target === 'banned') {
+      where.banned = true;
+    } else if (target === 'active') {
+      if (activeDays) {
+        where.lastActiveDate = { [Op.gte]: new Date(Date.now() - parseInt(activeDays) * 86400000) };
+      }
+    }
+    
+    if (botId && botId !== 'all') where.botId = botId;
+    if (minChats) where.totalChats = { [Op.gte]: parseInt(minChats) };
+    
+    const count = await User.count({ where });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/broadcast/targeted', requireAuth, async (req, res) => {
+  try {
+    const { message, target, botId, activeDays, minChats, mediaUrl } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message required' });
+    
+    let where = { hasStarted: true };
+    
+    if (target === 'vip') {
+      const vipUsers = await VipSubscription.findAll({ where: { expiresAt: { [Op.gte]: new Date() } }, attributes: ['userId'] });
+      where.userId = { [Op.in]: vipUsers.map(v => v.userId) };
+    } else if (target === 'non_vip') {
+      const vipUsers = await VipSubscription.findAll({ where: { expiresAt: { [Op.gte]: new Date() } }, attributes: ['userId'] });
+      where.userId = { [Op.notIn]: vipUsers.map(v => v.userId) };
+    } else if (target === 'active') {
+      if (activeDays) where.lastActiveDate = { [Op.gte]: new Date(Date.now() - parseInt(activeDays) * 86400000) };
+    }
+    
+    if (botId && botId !== 'all') where.botId = botId;
+    if (minChats) where.totalChats = { [Op.gte]: parseInt(minChats) };
+    
+    const users = await User.findAll({ where, attributes: ['userId', 'botId'] });
+    
+    const AuditService = require('./services/auditService');
+    await AuditService.log({ adminId: req.adminId, category: 'broadcast', action: 'targeted_broadcast', details: { target, userCount: users.length, botId }, success: true }).catch(() => {});
+    addAlert('broadcast', 'info', `Targeted broadcast sent to ${users.length} users (${target})`, { target, count: users.length });
+    
+    // Queue broadcast for each user through their bot  
+    let sent = 0, failed = 0;
+    const botInstances = global.botInstances || [];
+    
+    for (const user of users) {
+      try {
+        const botIndex = botInstances.findIndex(b => b && b.botInfo && String(b.botInfo.id) === String(user.botId));
+        const bot = botIndex >= 0 ? botInstances[botIndex] : botInstances[0];
+        if (bot) {
+          await bot.telegram.sendMessage(user.userId, message, { parse_mode: 'HTML' }).catch(() => { failed++; });
+          sent++;
+        } else { failed++; }
+        // Rate limiting
+        if (sent % 25 === 0) await new Promise(r => setTimeout(r, 1000));
+      } catch { failed++; }
+    }
+    
+    res.json({ success: true, sent, failed, total: users.length });
+  } catch (error) {
+    console.error('Targeted broadcast error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 7: RATE LIMITING CONTROLS ====================
+app.get('/api/admin/config/rate-limits', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const limits = {
+      maxMessagesPerMinute: parseInt(await AppConfig.getValue('rate_max_messages_per_min') || '30'),
+      chatCooldownSeconds: parseInt(await AppConfig.getValue('rate_chat_cooldown_sec') || '5'),
+      searchCooldownSeconds: parseInt(await AppConfig.getValue('rate_search_cooldown_sec') || '10'),
+      broadcastDelayMs: parseInt(await AppConfig.getValue('rate_broadcast_delay_ms') || '50'),
+      maxDailyChats: parseInt(await AppConfig.getValue('rate_max_daily_chats') || '100'),
+      spamThreshold: parseInt(await AppConfig.getValue('rate_spam_threshold') || '5'),
+      apiRateLimit: parseInt(await AppConfig.getValue('rate_api_limit') || '100'),
+      apiRateWindowSec: parseInt(await AppConfig.getValue('rate_api_window_sec') || '60')
+    };
+    res.json(limits);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/config/rate-limits', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const AuditService = require('./services/auditService');
+    const fields = req.body;
+    const mapping = {
+      maxMessagesPerMinute: 'rate_max_messages_per_min',
+      chatCooldownSeconds: 'rate_chat_cooldown_sec',
+      searchCooldownSeconds: 'rate_search_cooldown_sec',
+      broadcastDelayMs: 'rate_broadcast_delay_ms',
+      maxDailyChats: 'rate_max_daily_chats',
+      spamThreshold: 'rate_spam_threshold',
+      apiRateLimit: 'rate_api_limit',
+      apiRateWindowSec: 'rate_api_window_sec'
+    };
+    
+    for (const [key, configKey] of Object.entries(mapping)) {
+      if (fields[key] !== undefined) {
+        await AppConfig.setValue(configKey, String(fields[key]));
+      }
+    }
+    
+    await AuditService.log({ adminId: req.adminId, category: 'config', action: 'update_rate_limits', details: fields, success: true }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 8: A/B TESTING & FEATURE FLAGS UI ====================
+app.get('/api/admin/feature-flags', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const flags = [
+      'ENABLE_STARS_PAYMENTS', 'ENABLE_VIP', 'ENABLE_LOCK_CHAT',
+      'ENABLE_REFERRALS', 'ENABLE_ADMIN_ALERTS', 'ENABLE_CROSS_BOT_MATCHING',
+      'ENABLE_AFFILIATE_SYSTEM', 'ENABLE_ABUSE_DETECTION', 'MAINTENANCE_MODE'
+    ];
+    
+    const result = {};
+    for (const flag of flags) {
+      const val = await AppConfig.getValue(flag);
+      result[flag] = val === 'true' || val === '1' || (val === null && process.env[flag] === 'true');
+    }
+    
+    // A/B test configs
+    const abTests = JSON.parse(await AppConfig.getValue('ab_tests') || '[]');
+    
+    res.json({ flags: result, abTests });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/feature-flags', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const AuditService = require('./services/auditService');
+    const { flag, value } = req.body;
+    
+    await AppConfig.setValue(flag, String(value));
+    
+    // Refresh feature flag cache
+    const featureFlags = require('./config/featureFlags');
+    if (featureFlags.invalidateCache) featureFlags.invalidateCache(flag);
+    
+    await AuditService.log({ adminId: req.adminId, category: 'config', action: 'toggle_feature_flag', details: { flag, value }, success: true }).catch(() => {});
+    addAlert('config', 'info', `Feature flag ${flag} set to ${value}`, { flag, value });
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/ab-tests', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const AuditService = require('./services/auditService');
+    const { name, flag, percentage, description } = req.body;
+    
+    const abTests = JSON.parse(await AppConfig.getValue('ab_tests') || '[]');
+    abTests.push({ id: Date.now(), name, flag, percentage: parseInt(percentage), description, active: true, createdAt: new Date() });
+    await AppConfig.setValue('ab_tests', JSON.stringify(abTests));
+    
+    await AuditService.log({ adminId: req.adminId, category: 'config', action: 'create_ab_test', details: { name, flag, percentage }, success: true }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/admin/ab-tests/:id', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const abTests = JSON.parse(await AppConfig.getValue('ab_tests') || '[]');
+    const filtered = abTests.filter(t => String(t.id) !== String(req.params.id));
+    await AppConfig.setValue('ab_tests', JSON.stringify(filtered));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 9: CUSTOM BOT MESSAGES EDITOR ====================
+app.get('/api/admin/bot-messages/all', requireAuth, async (req, res) => {
+  try {
+    const MessagesService = require('./services/messagesService');
+    const messages = MessagesService.getAllMessages ? MessagesService.getAllMessages() : {};
+    
+    // Group messages by category
+    const categories = {};
+    for (const [key, value] of Object.entries(messages)) {
+      const cat = key.split('_')[0] || 'general';
+      if (!categories[cat]) categories[cat] = [];
+      categories[cat].push({ key, value, category: cat });
+    }
+    
+    res.json({ messages, categories });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/bot-messages/update', requireAuth, async (req, res) => {
+  try {
+    const { key, value } = req.body;
+    const MessagesService = require('./services/messagesService');
+    const AuditService = require('./services/auditService');
+    
+    if (MessagesService.setMessage) {
+      await MessagesService.setMessage(key, value);
+    } else if (MessagesService.updateMessage) {
+      await MessagesService.updateMessage(key, value);
+    }
+    
+    await AuditService.log({ adminId: req.adminId, category: 'config', action: 'update_bot_message', details: { key }, success: true }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 10: AUTOMATED REPORTS ====================
+app.get('/api/admin/reports/config', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const config = {
+      enabled: (await AppConfig.getValue('reports_enabled')) === 'true',
+      frequency: await AppConfig.getValue('reports_frequency') || 'daily',
+      telegramChatId: await AppConfig.getValue('reports_telegram_chat_id') || process.env.ADMIN_CHAT_ID || '',
+      includeRevenue: (await AppConfig.getValue('reports_include_revenue') || 'true') === 'true',
+      includeUsers: (await AppConfig.getValue('reports_include_users') || 'true') === 'true',
+      includeChats: (await AppConfig.getValue('reports_include_chats') || 'true') === 'true',
+      includeErrors: (await AppConfig.getValue('reports_include_errors') || 'true') === 'true',
+      lastSentAt: await AppConfig.getValue('reports_last_sent') || null
+    };
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/reports/config', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const AuditService = require('./services/auditService');
+    const { enabled, frequency, telegramChatId, includeRevenue, includeUsers, includeChats, includeErrors } = req.body;
+    
+    if (enabled !== undefined) await AppConfig.setValue('reports_enabled', String(enabled));
+    if (frequency) await AppConfig.setValue('reports_frequency', frequency);
+    if (telegramChatId) await AppConfig.setValue('reports_telegram_chat_id', telegramChatId);
+    if (includeRevenue !== undefined) await AppConfig.setValue('reports_include_revenue', String(includeRevenue));
+    if (includeUsers !== undefined) await AppConfig.setValue('reports_include_users', String(includeUsers));
+    if (includeChats !== undefined) await AppConfig.setValue('reports_include_chats', String(includeChats));
+    if (includeErrors !== undefined) await AppConfig.setValue('reports_include_errors', String(includeErrors));
+    
+    await AuditService.log({ adminId: req.adminId, category: 'config', action: 'update_report_config', details: req.body, success: true }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/reports/send-now', requireAuth, async (req, res) => {
+  try {
+    const { AppConfig } = require('./models');
+    const { StarTransaction, Chat } = require('./models');
+    
+    const today = new Date();
+    const yesterday = new Date(Date.now() - 86400000);
+    
+    const newUsers = await User.count({ where: { createdAt: { [Op.gte]: yesterday } } });
+    const totalUsers = await User.count();
+    const activeToday = await User.count({ where: { lastActiveDate: today.toISOString().split('T')[0] } });
+    const revenue = await StarTransaction.sum('amount', { where: { createdAt: { [Op.gte]: yesterday } } }) || 0;
+    const chats = await Chat.count({ where: { startedAt: { [Op.gte]: yesterday } } });
+    const activeChats = await Chat.count({ where: { active: true } });
+    const errCount = errorLog.filter(e => new Date(e.timestamp) >= yesterday).length;
+    
+    const report = `📊 *Daily Admin Report*\n` +
+      `📅 ${today.toLocaleDateString()}\n\n` +
+      `👥 *Users*\n  New: ${newUsers}\n  Total: ${totalUsers}\n  Active Today: ${activeToday}\n\n` +
+      `💬 *Chats*\n  New: ${chats}\n  Active: ${activeChats}\n\n` +
+      `💰 *Revenue*\n  Today: ${revenue} ⭐ ($${(revenue * 0.01).toFixed(2)})\n\n` +
+      `🔴 *Errors*: ${errCount}\n`;
+    
+    // Send via admin bot
+    const chatId = await AppConfig.getValue('reports_telegram_chat_id') || process.env.ADMIN_CHAT_ID;
+    if (chatId) {
+      const botInstances = global.botInstances || [];
+      const bot = botInstances[0];
+      if (bot) {
+        await bot.telegram.sendMessage(chatId, report, { parse_mode: 'Markdown' });
+      }
+    }
+    
+    await AppConfig.setValue('reports_last_sent', new Date().toISOString());
+    res.json({ success: true, report });
+  } catch (error) {
+    console.error('Send report error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FEATURE 11: USER FEEDBACK/RATING DASHBOARD ====================
+app.get('/api/admin/feedback', requireAuth, async (req, res) => {
+  try {
+    const { ChatRating } = require('./models');
+    const { page = 1, limit = 25, type, reported } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const where = {};
+    if (type) where.ratingType = type;
+    if (reported === 'true') where.reportReason = { [Op.ne]: 'none' };
+    
+    const { count, rows } = await ChatRating.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+    
+    // Stats
+    const total = await ChatRating.count();
+    const positive = await ChatRating.count({ where: { ratingType: 'positive' } });
+    const negative = await ChatRating.count({ where: { ratingType: 'negative' } });
+    const reports = await ChatRating.count({ where: { reportReason: { [Op.ne]: 'none' } } });
+    const unreviewed = await ChatRating.count({ where: { reportReason: { [Op.ne]: 'none' }, reviewed: false } });
+    
+    // Report breakdown
+    const reportBreakdown = await sequelize.query(
+      `SELECT "reportReason", COUNT(*) as count FROM "ChatRating" WHERE "reportReason" != 'none' GROUP BY "reportReason" ORDER BY count DESC`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Satisfaction trend (last 14 days)
+    const trend = await sequelize.query(
+      `SELECT DATE("createdAt") as date, 
+              COUNT(CASE WHEN "ratingType" = 'positive' THEN 1 END) as positive,
+              COUNT(CASE WHEN "ratingType" = 'negative' THEN 1 END) as negative,
+              COUNT(*) as total
+       FROM "ChatRating" WHERE "createdAt" >= :since GROUP BY DATE("createdAt") ORDER BY date`,
+      { replacements: { since: new Date(Date.now() - 14 * 86400000) }, type: sequelize.QueryTypes.SELECT }
+    );
+    
+    res.json({
+      ratings: rows, total: count, page: parseInt(page), totalPages: Math.ceil(count / parseInt(limit)),
+      stats: { total, positive, negative, reports, unreviewed, satisfactionRate: total > 0 ? ((positive / total) * 100).toFixed(1) : 0 },
+      reportBreakdown, trend
+    });
+  } catch (error) {
+    console.error('Feedback error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/feedback/:id/review', requireAuth, async (req, res) => {
+  try {
+    const { ChatRating } = require('./models');
+    const AuditService = require('./services/auditService');
+    const { actionTaken } = req.body;
+    
+    await ChatRating.update(
+      { reviewed: true, reviewedBy: req.adminId, reviewedAt: new Date(), actionTaken: actionTaken || 'reviewed' },
+      { where: { id: req.params.id } }
+    );
+    
+    await AuditService.log({ adminId: req.adminId, category: 'report', action: 'review_report', targetId: String(req.params.id), details: { actionTaken }, success: true }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Make logError available globally
 global.logAdminError = logError;
 
