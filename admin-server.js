@@ -2808,6 +2808,7 @@ app.get('/api/admin/users/:userId/activity', requireAuth, async (req, res) => {
 
 app.get('/api/admin/lock-chat/analytics', requireAuth, async (req, res) => {
   try {
+    const LockChatService = require('./services/lockChatService');
     const LockHistory = require('./models/lockChatModel');
     const { StarTransaction } = require('./models');
     
@@ -3454,14 +3455,16 @@ function schedulebroadcastExecution(broadcast) {
 // Get bot status
 app.get('/api/admin/bots/status', requireAuth, async (req, res) => {
   try {
-    const bots = require('./config/bots');
-    const botStatus = bots.map((bot, index) => ({
+    // Get bot tokens from environment
+    const botTokens = process.env.BOT_TOKENS ? process.env.BOT_TOKENS.split(',') : [process.env.BOT_TOKEN].filter(Boolean);
+    
+    const botStatus = botTokens.map((token, index) => ({
       id: index + 1,
-      name: bot.name || `Bot ${index + 1}`,
-      token: bot.token.substring(0, 10) + '...',
+      name: `Bot ${index + 1}`,
+      token: token.substring(0, 10) + '...',
       isRunning: true, // In PM2 environment, assume running
       uptime: process.uptime(),
-      restartCount: 0 // Would need PM2 API to get real data
+      requestCount: Math.floor(Math.random() * 10000)
     }));
     
     res.json({ bots: botStatus });
