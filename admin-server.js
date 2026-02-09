@@ -2651,7 +2651,7 @@ app.post('/api/admin/users/mass-unban', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Provide userIds array or all=true' });
     }
     
-    await AuditService.log({ adminId: req.adminId, category: 'users', action: all ? 'mass_unban_all' : 'mass_unban', details: { count }, success: true }).catch(() => {});
+    await AuditService.log({ adminId: req.adminId, category: 'user', action: all ? 'mass_unban_all' : 'mass_unban', details: { count }, success: true }).catch(() => {});
     res.json({ success: true, count });
   } catch (error) {
     console.error('Mass unban error:', error);
@@ -2668,7 +2668,7 @@ app.post('/api/admin/users/mass-ban', requireAuth, async (req, res) => {
     }
     
     const result = await User.update({ banned: true }, { where: { userId: { [Op.in]: userIds } } });
-    await AuditService.log({ adminId: req.adminId, category: 'users', action: 'mass_ban', details: { count: result[0] }, success: true }).catch(() => {});
+    await AuditService.log({ adminId: req.adminId, category: 'user', action: 'mass_ban', details: { count: result[0] }, success: true }).catch(() => {});
     res.json({ success: true, count: result[0] });
   } catch (error) {
     console.error('Mass ban error:', error);
@@ -2680,7 +2680,7 @@ app.post('/api/admin/users/mass-vip', requireAuth, async (req, res) => {
   try {
     const AuditService = require('./services/auditService');
     const { userIds, days } = req.body;
-    if (!Array.isArray(userIds) || userIds.length > 0 || !days) {
+    if (!Array.isArray(userIds) || userIds.length === 0 || !days) {
       return res.status(400).json({ error: 'userIds array and days required' });
     }
     
