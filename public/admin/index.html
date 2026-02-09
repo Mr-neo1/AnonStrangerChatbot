@@ -123,7 +123,9 @@
         <button onclick="switchTab('overview')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="overview">📊 Overview</button>
         <button onclick="switchTab('live')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="live">🔴 Live Users</button>
         <button onclick="switchTab('analytics')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="analytics">📈 Analytics</button>
+        <button onclick="switchTab('revenue')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="revenue">💰 Revenue</button>
         <button onclick="switchTab('users')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="users">👥 Users</button>
+        <button onclick="switchTab('referrals')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="referrals">🎁 Referrals</button>
         <button onclick="switchTab('bots')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="bots">🤖 Bots</button>
         <button onclick="switchTab('vip')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="vip">⭐ VIP Plans</button>
         <button onclick="switchTab('lockchat')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="lockchat">🔒 Lock Chat</button>
@@ -418,10 +420,20 @@
               </select>
               <button onclick="searchUsers()" class="btn-primary px-4 py-2 rounded-lg text-sm text-white">Search</button>
             </div>
+            <div class="p-4 border-b border-dark-800 flex flex-wrap items-center gap-2 bg-dark-800">
+              <button onclick="massUnbanAll()" class="bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded text-sm text-white">✅ Unban All</button>
+              <button onclick="massUnbanSelected()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm text-white">Unban Selected</button>
+              <button onclick="massBanSelected()" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded text-sm text-white">Ban Selected</button>
+              <button onclick="massVipSelected()" class="bg-purple-600 hover:bg-purple-500 px-3 py-1.5 rounded text-sm text-white">VIP Selected</button>
+              <span id="selectedCount" class="text-dark-400 text-sm ml-auto">0 selected</span>
+            </div>
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead class="bg-dark-800 text-dark-300">
                   <tr>
+                    <th class="px-4 py-3 text-left">
+                      <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" class="rounded">
+                    </th>
                     <th class="px-4 py-3 text-left">User ID</th>
                     <th class="px-4 py-3 text-left">Username</th>
                     <th class="px-4 py-3 text-left">Gender/Age</th>
@@ -439,6 +451,128 @@
                 <button onclick="loadUsers(currentUsersPage-1)" class="px-3 py-1 bg-dark-800 rounded text-sm hover:bg-dark-700">Previous</button>
                 <button onclick="loadUsers(currentUsersPage+1)" class="px-3 py-1 bg-dark-800 rounded text-sm hover:bg-dark-700">Next</button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Referrals Tab -->
+        <section id="tab-referrals" class="tab-content hidden fade-in">
+          <div class="grid lg:grid-cols-4 gap-4 mb-4">
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">Total Referrals</div>
+              <div id="refTotal" class="text-2xl font-bold text-white">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">✅ Accepted</div>
+              <div id="refAccepted" class="text-2xl font-bold text-green-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">⏳ Pending</div>
+              <div id="refPending" class="text-2xl font-bold text-yellow-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">Conversion Rate</div>
+              <div id="refConversion" class="text-2xl font-bold text-blue-400">-</div>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-2 gap-4">
+            <!-- Top Inviters -->
+            <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden">
+              <div class="p-4 border-b border-dark-800">
+                <h3 class="font-semibold">🏆 Top Inviters</h3>
+              </div>
+              <div class="p-4">
+                <div id="topInviters" class="space-y-2"></div>
+              </div>
+            </div>
+
+            <!-- Referral Settings -->
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="font-semibold mb-4">⚙️ Referral Settings</h3>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-sm text-dark-300 mb-1">VIP Days per Milestone</label>
+                  <input type="number" id="refVipDays" class="input-field" value="10">
+                </div>
+                <div>
+                  <label class="block text-sm text-dark-300 mb-1">Milestone Interval (referrals)</label>
+                  <input type="number" id="refMilestone" class="input-field" value="5">
+                </div>
+                <button onclick="saveReferralSettings()" class="btn-primary px-4 py-2 rounded-lg text-white">Save Settings</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Referrals List -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden mt-4">
+            <div class="p-4 border-b border-dark-800 flex items-center gap-3">
+              <select id="refStatusFilter" class="input-field w-auto" onchange="loadReferrals()">
+                <option value="">All Statuses</option>
+                <option value="accepted">Accepted</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-dark-800 text-dark-300">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Inviter</th>
+                    <th class="px-4 py-3 text-left">Invited</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Date</th>
+                  </tr>
+                </thead>
+                <tbody id="referralsTableBody" class="divide-y divide-dark-800"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Revenue Tab -->
+        <section id="tab-revenue" class="tab-content hidden fade-in">
+          <div class="grid lg:grid-cols-4 gap-4 mb-4">
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">💎 Total Stars Revenue</div>
+              <div id="revTotal" class="text-2xl font-bold text-yellow-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">⭐ VIP Revenue</div>
+              <div id="revVip" class="text-2xl font-bold text-purple-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">🔒 Lock Chat Revenue</div>
+              <div id="revLock" class="text-2xl font-bold text-blue-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 border border-dark-800 rounded-xl p-4">
+              <div class="text-dark-400 text-sm mb-1">USD Equivalent</div>
+              <div id="revUsd" class="text-2xl font-bold text-green-400">-</div>
+            </div>
+          </div>
+
+          <!-- Revenue Chart -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-4">
+            <h3 class="font-semibold mb-4">📈 Revenue Trend (Last 30 Days)</h3>
+            <canvas id="revenueChart" height="80"></canvas>
+          </div>
+
+          <!-- Revenue by Bot -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden">
+            <div class="p-4 border-b border-dark-800">
+              <h3 class="font-semibold">🤖 Revenue by Bot</h3>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-dark-800 text-dark-300">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Bot ID</th>
+                    <th class="px-4 py-3 text-left">Transactions</th>
+                    <th class="px-4 py-3 text-left">Revenue (Stars)</th>
+                    <th class="px-4 py-3 text-left">USD</th>
+                  </tr>
+                </thead>
+                <tbody id="revenueByBotBody" class="divide-y divide-dark-800"></tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -1003,10 +1137,28 @@
       document.getElementById(`tab-${tab}`).classList.remove('hidden');
       document.querySelector(`[data-tab="${tab}"]`)?.classList.add('bg-primary-600', 'text-white');
       
-      const titles = { overview: 'Overview', live: 'Live Users', analytics: 'Analytics', users: 'User Management', bots: 'Bot Instances', vip: 'VIP Plans', lockchat: 'Lock Chat', broadcast: 'Broadcast', messages: 'Bot Messages', config: 'Configuration', export: 'Export Data', audit: 'Audit Logs', maintenance: 'Maintenance' };
+      const titles = { 
+        overview: 'Overview', 
+        live: 'Live Users', 
+        analytics: 'Analytics', 
+        revenue: 'Revenue Analytics',
+        users: 'User Management', 
+        referrals: 'Referral Management',
+        bots: 'Bot Instances', 
+        vip: 'VIP Plans', 
+        lockchat: 'Lock Chat', 
+        broadcast: 'Broadcast', 
+        messages: 'Bot Messages', 
+        config: 'Configuration', 
+        export: 'Export Data', 
+        audit: 'Audit Logs', 
+        maintenance: 'Maintenance' 
+      };
       document.getElementById('pageTitle').textContent = titles[tab] || tab;
       
       if (tab === 'users') loadUsers();
+      if (tab === 'referrals') { loadReferralStats(); loadReferrals(); }
+      if (tab === 'revenue') loadRevenueAnalytics();
       if (tab === 'bots') loadBots();
       if (tab === 'vip') loadVipPlans();
       if (tab === 'lockchat') loadLockData();
@@ -1200,6 +1352,9 @@
         const tbody = document.getElementById('usersTableBody');
         tbody.innerHTML = data.users.map(u => `
           <tr class="table-row">
+            <td class="px-4 py-3">
+              <input type="checkbox" class="user-checkbox rounded" value="${u.userId}" onchange="toggleUserSelect('${u.userId}', this.checked)">
+            </td>
             <td class="px-4 py-3 font-mono text-xs">${u.userId}</td>
             <td class="px-4 py-3">${u.username ? `<a href="https://t.me/${u.username}" target="_blank" class="text-blue-400 hover:underline">@${u.username}</a>` : (u.firstName || '-')}</td>
             <td class="px-4 py-3">${u.gender || '-'} / ${u.age || '-'}</td>
@@ -1209,6 +1364,8 @@
           </tr>
         `).join('');
         document.getElementById('usersPagination').textContent = `Page ${currentUsersPage} of ${Math.ceil(data.total / 20)}`;
+        selectedUserIds.clear();
+        updateSelectedCount();
       } catch (err) {}
     }
 
@@ -1268,6 +1425,208 @@
       try {
         await api('/users/message', { method: 'POST', body: { userId: selectedUserId, message: msg } });
         toast('Message sent!', 'success');
+      } catch (err) {}
+    }
+
+    // Mass User Actions
+    let selectedUserIds = new Set();
+
+    function toggleSelectAll() {
+      const all = document.getElementById('selectAll');
+      const checkboxes = document.querySelectorAll('.user-checkbox');
+      checkboxes.forEach(cb => {
+        cb.checked = all.checked;
+        if (all.checked) selectedUserIds.add(cb.value);
+        else selectedUserIds.delete(cb.value);
+      });
+      updateSelectedCount();
+    }
+
+    function toggleUserSelect(userId, checked) {
+      if (checked) selectedUserIds.add(userId);
+      else selectedUserIds.delete(userId);
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      document.getElementById('selectedCount').textContent = `${selectedUserIds.size} selected`;
+    }
+
+    async function massUnbanAll() {
+      if (!confirm('⚠️ Unban ALL banned users? This action will affect all banned users in the database.')) return;
+      try {
+        const data = await api('/users/mass-unban', { method: 'POST', body: { all: true } });
+        toast(`✅ Unbanned ${data.count} users!`, 'success');
+        selectedUserIds.clear();
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function massUnbanSelected() {
+      if (selectedUserIds.size === 0) {
+        toast('No users selected', 'warning');
+        return;
+      }
+      if (!confirm(`Unban ${selectedUserIds.size} selected users?`)) return;
+      try {
+        const data = await api('/users/mass-unban', { method: 'POST', body: { userIds: Array.from(selectedUserIds) } });
+        toast(`Unbanned ${data.count} users!`, 'success');
+        selectedUserIds.clear();
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function massBanSelected() {
+      if (selectedUserIds.size === 0) {
+        toast('No users selected', 'warning');
+        return;
+      }
+      if (!confirm(`⚠️ Ban ${selectedUserIds.size} selected users?`)) return;
+      try {
+        const data = await api('/users/mass-ban', { method: 'POST', body: { userIds: Array.from(selectedUserIds) } });
+        toast(`Banned ${data.count} users!`, 'success');
+        selectedUserIds.clear();
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    async function massVipSelected() {
+      if (selectedUserIds.size === 0) {
+        toast('No users selected', 'warning');
+        return;
+      }
+      const days = prompt('Enter VIP days to grant:', '30');
+      if (!days) return;
+      if (!confirm(`Grant ${days} days VIP to ${selectedUserIds.size} users?`)) return;
+      try {
+        const data = await api('/users/mass-vip', { method: 'POST', body: { userIds: Array.from(selectedUserIds), days: parseInt(days) } });
+        toast(`Granted VIP to ${data.count} users!`, 'success');
+        selectedUserIds.clear();
+        loadUsers(currentUsersPage);
+      } catch (err) {}
+    }
+
+    // Referrals
+    async function loadReferralStats() {
+      try {
+        const data = await api('/referrals/stats');
+        document.getElementById('refTotal').textContent = data.total.toLocaleString();
+        document.getElementById('refAccepted').textContent = data.accepted.toLocaleString();
+        document.getElementById('refPending').textContent = data.pending.toLocaleString();
+        document.getElementById('refConversion').textContent = data.total > 0 ? `${((data.accepted / data.total) * 100).toFixed(1)}%` : '0%';
+
+        // Top inviters
+        const topDiv = document.getElementById('topInviters');
+        if (data.topInviters && data.topInviters.length > 0) {
+          topDiv.innerHTML = data.topInviters.map((inv, i) => `
+            <div class="flex items-center justify-between p-3 bg-dark-800 rounded-lg">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🏅'}</span>
+                <div>
+                  <div class="font-semibold text-white">${inv.user ? (inv.user.username || inv.user.firstName || 'User') : 'Unknown'}</div>
+                  <div class="text-xs text-dark-400">ID: ${inv.inviterId}</div>
+                </div>
+              </div>
+              <div class="text-lg font-bold text-primary-400">${inv.count}</div>
+            </div>
+          `).join('');
+        } else {
+          topDiv.innerHTML = '<div class="text-dark-400 text-center py-4">No referrals yet</div>';
+        }
+      } catch (err) {}
+    }
+
+    async function loadReferrals() {
+      try {
+        const status = document.getElementById('refStatusFilter').value;
+        const data = await api(`/referrals?status=${status}&limit=100`);
+        const tbody = document.getElementById('referralsTableBody');
+        tbody.innerHTML = data.referrals.map(ref => `
+          <tr class="table-row">
+            <td class="px-4 py-3">
+              <div class="font-semibold">${ref.inviter ? (ref.inviter.username || ref.inviter.firstName || 'User') : 'Unknown'}</div>
+              <div class="text-xs text-dark-400">${ref.inviterId}</div>
+            </td>
+            <td class="px-4 py-3">
+              <div class="font-semibold">${ref.invited ? (ref.invited.username || ref.invited.firstName || 'User') : 'Unknown'}</div>
+              <div class="text-xs text-dark-400">${ref.invitedId}</div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-1 rounded text-xs ${ref.status === 'accepted' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}">${ref.status}</span>
+            </td>
+            <td class="px-4 py-3 text-sm text-dark-400">${new Date(ref.createdAt).toLocaleDateString()}</td>
+          </tr>
+        `).join('');
+      } catch (err) {}
+    }
+
+    async function saveReferralSettings() {
+      const days = document.getElementById('refVipDays').value;
+      try {
+        await api('/config', { method: 'POST', body: { key: 'referral_vip_days', value: parseInt(days) } });
+        toast('Referral settings saved!', 'success');
+      } catch (err) {}
+    }
+
+    // Revenue Analytics
+    let revenueChart = null;
+    async function loadRevenueAnalytics() {
+      try {
+        const data = await api('/analytics/revenue');
+        
+        // Update stats
+        document.getElementById('revTotal').textContent = (data.totalStarsRevenue || 0).toLocaleString() + ' ⭐';
+        document.getElementById('revVip').textContent = (data.vipRevenue || 0).toLocaleString() + ' ⭐';
+        document.getElementById('revLock').textContent = (data.lockRevenue || 0).toLocaleString() + ' ⭐';
+        
+        // Calculate USD (assuming 1 star = $0.01)
+        const usd = ((data.totalStarsRevenue || 0) * 0.01).toFixed(2);
+        document.getElementById('revUsd').textContent = '$' + usd;
+
+        // Revenue chart
+        if (data.revenueTrend && data.revenueTrend.length > 0) {
+          const ctx = document.getElementById('revenueChart').getContext('2d');
+          if (revenueChart) revenueChart.destroy();
+          
+          revenueChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: data.revenueTrend.map(d => new Date(d.date).toLocaleDateString()).reverse(),
+              datasets: [{
+                label: 'Revenue (Stars)',
+                data: data.revenueTrend.map(d => d.revenue).reverse(),
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                tension: 0.3,
+                fill: true
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false }
+              },
+              scales: {
+                y: { beginAtZero: true, ticks: { color: '#64748b' } },
+                x: { ticks: { color: '#64748b' } }
+              }
+            }
+          });
+        }
+
+        // Revenue by bot
+        if (data.revenueByBot && data.revenueByBot.length > 0) {
+          const tbody = document.getElementById('revenueByBotBody');
+          tbody.innerHTML = data.revenueByBot.map(bot => `
+            <tr class="table-row">
+              <td class="px-4 py-3 font-mono text-sm">${bot.botId || 'Unknown'}</td>
+              <td class="px-4 py-3">${bot.transactions || 0}</td>
+              <td class="px-4 py-3 font-semibold text-yellow-400">${(bot.revenue || 0).toLocaleString()} ⭐</td>
+              <td class="px-4 py-3 font-semibold text-green-400">$${((bot.revenue || 0) * 0.01).toFixed(2)}</td>
+            </tr>
+          `).join('');
+        }
       } catch (err) {}
     }
 

@@ -2630,6 +2630,323 @@ app.post('/api/admin/lock-chat/remove', requireAuth, async (req, res) => {
   }
 });
 
+// ==================== MASS USER MANAGEMENT ====================
+
+app.post('/api/admin/users/mass-unban', requireAuth, async (req, res) => {
+  try {
+    const { userIds, all } = req.body;
+    let count = 0;
+    
+    if (all === true) {
+      // Unban all banned users
+      const result = await User.update({ banned: false }, { where: { banned: true } });
+      count = result[0];
+    } else if (Array.isArray(userIds) && userIds.length > 0) {
+      // Unban specific users
+      const result = await User.update({ banned: false }, { where: { userId: { [Op.in]: userIds } } });
+      count = result[0];
+    } else {
+      return res.status(400).json({ error: 'Provide userIds array or all=true' });
+    }
+    
+    await AuditService.logUserAction(req.adminId, all ? 'mass_unban_all' : 'mass_unban', `Unbanned ${count} users`, { count }, req);
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('Mass unban error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/users/mass-ban', requireAuth, async (req, res) => {
+  try {
+    const { userIds } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'userIds array required' });
+    }
+    
+    const result = await User.update({ banned: true }, { where: { userId: { [Op.in]: userIds } } });
+    await AuditService.logUserAction(req.adminId, 'mass_ban', `Banned ${result[0]} users`, { count: result[0], userIds }, req);
+    res.json({ success: true, count: result[0] });
+  } catch (error) {
+    console.error('Mass ban error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/users/mass-vip', requireAuth, async (req, res) => {
+  try {
+    const { userIds, days } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0 || !days) {
+      return res.status(400).json({ error: 'userIds array and days required' });
+    }
+    
+    let count = 0;
+    for (const userId of userIds) {
+      try {
+        await VipService.activateVip(userId, parseInt(days), { source: 'admin_mass_grant' });
+        count++;
+      } catch (err) {
+        console.error(`Failed to grant VIP to ${userId}:`, err.message);
+      }
+    }
+    
+    await AuditService.logUserAction(req.adminId, 'mass_vip_grant', `Granted ${days} days VIP to ${count} users`, { count, days, userIds }, req);
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('Mass VIP grant error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== REFERRAL MANAGEMENT ====================
+
+app.get('/api/admin/referrals/stats', requireAuth, async (req, res) => {
+  try {
+    const { Referral } = require('./models');
+    
+    const total = await Referral.count();
+    const accepted = await Referral.count({ where: { status: 'accepted' } });
+    const pending = await Referral.count({ where: { status: 'pending' } });
+    
+    // Top inviters
+    const topInviters = await sequelize.query(
+      `SELECT "inviterId", COUNT(*) as count FROM "Referrals" WHERE status = 'accepted' GROUP BY "inviterId" ORDER BY count DESC LIMIT 10`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Enrich with user data
+    const enriched = await Promise.all(topInviters.map(async (inv) => {
+      const user = await User.findOne({ where: { userId: inv.inviterId }, attributes: ['userId', 'telegramId', 'username', 'firstName'] });
+      return { ...inv, user: user ? user.toJSON() : null };
+    }));
+    
+    res.json({ total, accepted, pending, topInviters: enriched });
+  } catch (error) {
+    console.error('Referral stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/referrals', requireAuth, async (req, res) => {
+  try {
+    const { Referral } = require('./models');
+    const { status, limit = 100, offset = 0 } = req.query;
+    
+    const where = {};
+    if (status) where.status = status;
+    
+    const referrals = await Referral.findAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']],
+      include: [
+        { model: User, as: 'inviter', attributes: ['userId', 'telegramId', 'username', 'firstName'] },
+        { model: User, as: 'invited', attributes: ['userId', 'telegramId', 'username', 'firstName'] }
+      ]
+    });
+    
+    const total = await Referral.count({ where });
+    res.json({ referrals, total });
+  } catch (error) {
+    console.error('Referrals list error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== USER ACTIVITY INSIGHTS ====================
+
+app.get('/api/admin/users/:userId/activity', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { Chat, StarTransaction, VipSubscription, Referral } = require('./models');
+    
+    const user = await User.findOne({ where: { userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // Chat stats
+    const totalChats = await Chat.count({ where: { [Op.or]: [{ userId1: userId }, { userId2: userId }] } });
+    
+    // Payment history
+    const payments = await StarTransaction.findAll({
+      where: { userId },
+      order: [['createdAt', 'DESC']],
+      limit: 20
+    });
+    
+    // VIP history
+    const vipSubs = await VipSubscription.findAll({
+      where: { userId },
+      order: [['startedAt', 'DESC']],
+      limit: 5
+    });
+    
+    // Referrals made
+    const referralsMade = await Referral.count({ where: { inviterId: userId, status: 'accepted' } });
+    
+    // Referred by
+    const referredBy = await Referral.findOne({
+      where: { invitedId: userId, status: 'accepted' },
+      include: [{ model: User, as: 'inviter', attributes: ['userId', 'telegramId', 'username', 'firstName'] }]
+    });
+    
+    res.json({
+      user: user.toJSON(),
+      totalChats,
+      payments: payments.map(p => p.toJSON()),
+      vipSubs: vipSubs.map(v => v.toJSON()),
+      referralsMade,
+      referredBy: referredBy ? referredBy.toJSON() : null
+    });
+  } catch (error) {
+    console.error('User activity error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== LOCK CHAT ANALYTICS ====================
+
+app.get('/api/admin/lock-chat/analytics', requireAuth, async (req, res) => {
+  try {
+    const LockHistory = require('./models/lockChatModel');
+    const { StarTransaction } = require('./models');
+    
+    // Active locks
+    const activeLocks = await LockChatService.getActiveLocks();
+    
+    // Total lock purchases
+    const totalLocks = await LockHistory.count();
+    
+    // Revenue from locks (stars paid)
+    const lockRevenue = await LockHistory.sum('starsPaid', {
+      where: { starsPaid: { [Op.ne]: null } }
+    }) || 0;
+    
+    // Locks by duration
+    const locksByDuration = await sequelize.query(
+      `SELECT "durationMinutes", COUNT(*) as count FROM "Locks" GROUP BY "durationMinutes" ORDER BY "durationMinutes"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Recent locks
+    const recentLocks = await LockHistory.findAll({
+      limit: 20,
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'chatId', 'userId', 'durationMinutes', 'starsPaid', 'createdAt', 'expiresAt']
+    });
+    
+    res.json({
+      activeLocks: activeLocks.length,
+      totalLocks,
+      lockRevenue,
+      locksByDuration,
+      recentLocks: recentLocks.map(l => l.toJSON())
+    });
+  } catch (error) {
+    console.error('Lock chat analytics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== REVENUE ANALYTICS ====================
+
+app.get('/api/admin/analytics/revenue', requireAuth, async (req, res) => {
+  try {
+    const { StarTransaction, VipSubscription } = require('./models');
+    const LockHistory = require('./models/lockChatModel');
+    
+    // Total revenue from stars
+    const totalStarsRevenue = await StarTransaction.sum('amount', {
+      where: { status: 'successful' }
+    }) || 0;
+    
+    // VIP revenue
+    const vipRevenue = await VipSubscription.sum('starsPaid', {
+      where: { starsPaid: { [Op.ne]: null } }
+    }) || 0;
+    
+    // Lock chat revenue
+    const lockRevenue = await LockHistory.sum('starsPaid', {
+      where: { starsPaid: { [Op.ne]: null } }
+    }) || 0;
+    
+    // Revenue by bot
+    const revenueByBot = await sequelize.query(
+      `SELECT u."botId", COUNT(DISTINCT st.id) as transactions, SUM(st.amount) as revenue 
+       FROM "StarTransactions" st 
+       JOIN "User" u ON st."userId" = u."userId" 
+       WHERE st.status = 'successful' 
+       GROUP BY u."botId"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    // Revenue trend (last 30 days)
+    const revenueTrend = await sequelize.query(
+      `SELECT DATE(st."createdAt") as date, SUM(st.amount) as revenue, COUNT(*) as transactions
+       FROM "StarTransactions" st 
+       WHERE st.status = 'successful' AND st."createdAt" > NOW() - INTERVAL '30 days'
+       GROUP BY DATE(st."createdAt") 
+       ORDER BY date DESC`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    res.json({
+      totalStarsRevenue,
+      vipRevenue,
+      lockRevenue,
+      revenueByBot,
+      revenueTrend
+    });
+  } catch (error) {
+    console.error('Revenue analytics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== BOT ANALYTICS ====================
+
+app.get('/api/admin/bots/:botId/stats', requireAuth, async (req, res) => {
+  try {
+    const { botId } = req.params;
+    const { Chat, StarTransaction, VipSubscription } = require('./models');
+    
+    // User count
+    const userCount = await User.count({ where: { botId } });
+    
+    // Chat count
+    const chatCount = await Chat.count({
+      where: {
+        [Op.or]: [
+          { '$user1.botId$': botId },
+          { '$user2.botId$': botId }
+        ]
+      },
+      include: [
+        { model: User, as: 'user1', attributes: [] },
+        { model: User, as: 'user2', attributes: [] }
+      ]
+    });
+    
+    // Revenue
+    const revenue = await sequelize.query(
+      `SELECT SUM(st.amount) as total FROM "StarTransactions" st 
+       JOIN "User" u ON st."userId" = u."userId" 
+       WHERE u."botId" = :botId AND st.status = 'successful'`,
+      { replacements: { botId }, type: sequelize.QueryTypes.SELECT }
+    );
+    
+    res.json({
+      botId,
+      userCount,
+      chatCount,
+      revenue: revenue[0]?.total || 0
+    });
+  } catch (error) {
+    console.error('Bot stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== SERVE ADMIN PANEL ====================
 
 app.get('/admin', (req, res) => {

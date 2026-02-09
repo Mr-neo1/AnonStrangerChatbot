@@ -43,6 +43,18 @@ async function ensureIndexes() {
   return Promise.all(tasks);
 }
 
+// Setup model associations
+function setupAssociations() {
+  // Referral associations
+  Referral.belongsTo(User, { as: 'inviter', foreignKey: 'inviterId' });
+  Referral.belongsTo(User, { as: 'invited', foreignKey: 'invitedId' });
+  
+  // Chat associations
+  Chat.belongsTo(User, { as: 'user1', foreignKey: 'userId1' });
+  Chat.belongsTo(User, { as: 'user2', foreignKey: 'userId2' });
+}
+
+setupAssociations();
 ensureIndexes().catch(() => {});
 
 module.exports = {
