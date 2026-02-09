@@ -1422,13 +1422,24 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
     const tokensStr = await ConfigService.get('bot_tokens', '');
     const tokens = tokensStr ? tokensStr.split(',').filter(Boolean) : [];
     
-    // Get running bots from bots.js
-    let runningBots = [];
-    try {
-      const { getAllBots } = require('./bots');
-      runningBots = getAllBots() || [];
-    } catch (e) {
-      // Bots module not available
+    // Check each bot's status via Telegram API getMe
+    const https = require('https');
+    function checkBotAlive(token) {
+      return new Promise((resolve) => {
+        const url = `https://api.telegram.org/bot${token}/getMe`;
+        const req = https.get(url, { timeout: 5000 }, (resp) => {
+          let data = '';
+          resp.on('data', chunk => data += chunk);
+          resp.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              resolve(result.ok ? result.result : null);
+            } catch { resolve(null); }
+          });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+      });
     }
     
     // Get user counts per bot and active chats
@@ -1459,6 +1470,10 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
       chatMap[row.botId] = parseInt(row.count) || 0;
     }
     
+    // Check all bots in parallel
+    const botChecks = tokens.map(t => checkBotAlive(t));
+    const botResults = await Promise.all(botChecks);
+    
     const bots = [];
     for (let i = 0; i < tokens.length; i++) {
       const botId = `bot_${i}`;
@@ -1468,20 +1483,10 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
       const token = tokens[i];
       const maskedToken = token.substring(0, 10) + '...' + token.substring(token.length - 5);
       
-      // Check if this bot is running and get its info
-      const runningBot = runningBots.find(b => b._meta?.botId === botId || b._meta?.index === i);
-      let username = null;
-      let isRunning = false;
-      
-      if (runningBot) {
-        isRunning = runningBot._pollingState?.active !== false;
-        // Try to get username from cached getMe result
-        try {
-          if (runningBot._meInfo) {
-            username = runningBot._meInfo.username;
-          }
-        } catch (e) {}
-      }
+      // Use Telegram API result to determine status
+      const meInfo = botResults[i];
+      const isRunning = meInfo !== null;
+      const username = meInfo ? meInfo.username : null;
       
       bots.push({
         id: botId,
@@ -4295,6 +4300,15 @@ async function startAdminServer() {
   try {
     await sequelize.authenticate();
     console.log('✅ Admin Panel DB Connected');
+    
+    // Ensure ChatRating table exists with correct columns
+    try {
+      const ChatRating = require('./models/chatRatingModel');
+      await ChatRating.sync({ alter: true });
+      console.log('✅ ChatRating table synced');
+    } catch (syncErr) {
+      console.warn('⚠️ ChatRating sync warning:', syncErr.message);
+    }
     
     return new Promise((resolve, reject) => {
       server = app.listen(PORT, () => {

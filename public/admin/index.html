@@ -1835,7 +1835,7 @@
         const chatting = data.activeUsers.filter(u => u.status === 'chatting').length;
         const searching = data.activeUsers.filter(u => u.status === 'searching').length;
         
-        document.getElementById('live-chatting-count').textContent = Math.floor(chatting / 2); // Pairs
+        document.getElementById('live-chatting-count').textContent = chatting; // Each entry = 1 pair (backend deduplicates)
         document.getElementById('live-searching-count').textContent = searching;
         
         if (data.activeUsers.length === 0) {
@@ -1935,7 +1935,19 @@
           msgHtml += '</div>';
           showAlertModal('Chat History (Last 20 messages)', msgHtml);
         } else {
-          toast('No messages found for this chat', 'info');
+          // Show chat metadata even when message content isn't cached
+          let infoHtml = '<div class="space-y-3">';
+          if (data.chatId) {
+            infoHtml += `<div class="text-dark-300"><span class="text-dark-400">Chat ID:</span> ${data.chatId}</div>`;
+            infoHtml += `<div class="text-dark-300"><span class="text-dark-400">Status:</span> ${data.active ? '<span class="text-green-400">Active</span>' : '<span class="text-red-400">Ended</span>'}</div>`;
+            infoHtml += `<div class="text-dark-300"><span class="text-dark-400">Messages:</span> ${data.messageCount || 0}</div>`;
+            if (data.startedAt) infoHtml += `<div class="text-dark-300"><span class="text-dark-400">Started:</span> ${new Date(data.startedAt).toLocaleString()}</div>`;
+            infoHtml += `<p class="text-dark-500 text-sm mt-2">💬 Live message content is not stored for privacy. Only metadata is available.</p>`;
+          } else {
+            infoHtml += `<p class="text-dark-400">No chat found between these users.</p>`;
+          }
+          infoHtml += '</div>';
+          showAlertModal('Chat Info', infoHtml);
         }
       } catch (err) {
         console.error('Spy error:', err);
