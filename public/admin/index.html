@@ -1880,6 +1880,7 @@
         }
 
         // Revenue by bot
+        const revenueByBotTable = document.getElementById('revenueByBotBody').closest('.bg-dark-900');
         if (data.revenueByBot && data.revenueByBot.length > 0) {
           const tbody = document.getElementById('revenueByBotBody');
           tbody.innerHTML = data.revenueByBot.map(bot => `
@@ -1890,8 +1891,14 @@
               <td class="px-4 py-3 font-semibold text-green-400">$${((bot.revenue || 0) * 0.01).toFixed(2)}</td>
             </tr>
           `).join('');
+          revenueByBotTable.classList.remove('hidden');
+        } else {
+          revenueByBotTable.classList.add('hidden');
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error('Revenue analytics error:', err);
+        toast('Failed to load revenue data: ' + (err.message || 'Server error'), 'error');
+      }
     }
 
     // Bots

@@ -2932,7 +2932,7 @@ app.get('/api/admin/bots/:botId/stats', requireAuth, async (req, res) => {
     const revenue = await sequelize.query(
       `SELECT SUM(st.amount) as total FROM "StarTransactions" st 
        JOIN "User" u ON st."userId" = u."userId" 
-       WHERE u."botId" = :botId AND st.status = 'successful'`,
+       WHERE u."botId" = :botId`,
       { replacements: { botId }, type: sequelize.QueryTypes.SELECT }
     );
     
