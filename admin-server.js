@@ -2634,6 +2634,7 @@ app.post('/api/admin/lock-chat/remove', requireAuth, async (req, res) => {
 
 app.post('/api/admin/users/mass-unban', requireAuth, async (req, res) => {
   try {
+    const AuditService = require('./services/auditService');
     const { userIds, all } = req.body;
     let count = 0;
     
@@ -2649,7 +2650,7 @@ app.post('/api/admin/users/mass-unban', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Provide userIds array or all=true' });
     }
     
-    await AuditService.logUserAction(req.adminId, all ? 'mass_unban_all' : 'mass_unban', `Unbanned ${count} users`, { count }, req);
+    await AuditService.log({ adminId: req.adminId, category: 'users', action: all ? 'mass_unban_all' : 'mass_unban', details: { count }, success: true }).catch(() => {});
     res.json({ success: true, count });
   } catch (error) {
     console.error('Mass unban error:', error);
@@ -2659,13 +2660,14 @@ app.post('/api/admin/users/mass-unban', requireAuth, async (req, res) => {
 
 app.post('/api/admin/users/mass-ban', requireAuth, async (req, res) => {
   try {
+    const AuditService = require('./services/auditService');
     const { userIds } = req.body;
     if (!Array.isArray(userIds) || userIds.length === 0) {
       return res.status(400).json({ error: 'userIds array required' });
     }
     
     const result = await User.update({ banned: true }, { where: { userId: { [Op.in]: userIds } } });
-    await AuditService.logUserAction(req.adminId, 'mass_ban', `Banned ${result[0]} users`, { count: result[0], userIds }, req);
+    await AuditService.log({ adminId: req.adminId, category: 'users', action: 'mass_ban', details: { count: result[0] }, success: true }).catch(() => {});
     res.json({ success: true, count: result[0] });
   } catch (error) {
     console.error('Mass ban error:', error);
@@ -2675,8 +2677,9 @@ app.post('/api/admin/users/mass-ban', requireAuth, async (req, res) => {
 
 app.post('/api/admin/users/mass-vip', requireAuth, async (req, res) => {
   try {
+    const AuditService = require('./services/auditService');
     const { userIds, days } = req.body;
-    if (!Array.isArray(userIds) || userIds.length === 0 || !days) {
+    if (!Array.isArray(userIds) || userIds.length > 0 || !days) {
       return res.status(400).json({ error: 'userIds array and days required' });
     }
     
@@ -2823,11 +2826,11 @@ app.get('/api/admin/lock-chat/analytics', requireAuth, async (req, res) => {
       where: { starsPaid: { [Op.ne]: null } }
     }) || 0;
     
-    // Locks by duration
+    // Locks by duration (from LockHistory table)
     const locksByDuration = await sequelize.query(
-      `SELECT "durationMinutes", COUNT(*) as count FROM "Locks" GROUP BY "durationMinutes" ORDER BY "durationMinutes"`,
+      `SELECT "durationMinutes", COUNT(*) as count FROM "Locks" WHERE "durationMinutes" IS NOT NULL GROUP BY "durationMinutes" ORDER BY "durationMinutes"`,
       { type: sequelize.QueryTypes.SELECT }
-    );
+    ).catch(() => []);
     
     // Recent locks
     const recentLocks = await LockHistory.findAll({
@@ -2856,10 +2859,8 @@ app.get('/api/admin/analytics/revenue', requireAuth, async (req, res) => {
     const { StarTransaction, VipSubscription } = require('./models');
     const LockHistory = require('./models/lockChatModel');
     
-    // Total revenue from stars
-    const totalStarsRevenue = await StarTransaction.sum('amount', {
-      where: { status: 'successful' }
-    }) || 0;
+    // Total revenue from stars (all transactions are considered successful once recorded)
+    const totalStarsRevenue = await StarTransaction.sum('amount') || 0;
     
     // VIP revenue
     const vipRevenue = await VipSubscription.sum('starsPaid', {
@@ -2876,7 +2877,6 @@ app.get('/api/admin/analytics/revenue', requireAuth, async (req, res) => {
       `SELECT u."botId", COUNT(DISTINCT st.id) as transactions, SUM(st.amount) as revenue 
        FROM "StarTransactions" st 
        JOIN "User" u ON st."userId" = u."userId" 
-       WHERE st.status = 'successful' 
        GROUP BY u."botId"`,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -2885,7 +2885,7 @@ app.get('/api/admin/analytics/revenue', requireAuth, async (req, res) => {
     const revenueTrend = await sequelize.query(
       `SELECT DATE(st."createdAt") as date, SUM(st.amount) as revenue, COUNT(*) as transactions
        FROM "StarTransactions" st 
-       WHERE st.status = 'successful' AND st."createdAt" > NOW() - INTERVAL '30 days'
+       WHERE st."createdAt" > NOW() - INTERVAL '30 days'
        GROUP BY DATE(st."createdAt") 
        ORDER BY date DESC`,
       { type: sequelize.QueryTypes.SELECT }
@@ -3181,17 +3181,27 @@ app.get('/api/admin/csv/export-users', requireAuth, async (req, res) => {
     const where = {};
     
     if (status) {
-      if (status === 'banned') where.isBanned = true;
-      else if (status === 'active') where.isBanned = false;
+      if (status === 'banned') where.banned = true;
+      else if (status === 'active') where.banned = false;
     }
     if (botId) where.botId = botId;
     
     const users = await User.findAll({ where, order: [['createdAt', 'DESC']] });
     
+    // Get VIP status for each user
+    const vipStatuses = await VipSubscription.findAll({
+      where: { 
+        userId: { [Op.in]: users.map(u => u.userId) },
+        expiresAt: { [Op.gt]: new Date() }
+      },
+      attributes: ['userId']
+    });
+    const vipSet = new Set(vipStatuses.map(v => v.userId));
+    
     // Generate CSV
     const csvHeader = 'Telegram ID,Username,Gender,Age,Bot ID,VIP,Banned,Created At,Last Active\n';
     const csvRows = users.map(u => 
-      `${u.telegramId},"${u.username || ''}",${u.gender || ''},${u.age || ''},${u.botId},${u.isVip ? 'Yes' : 'No'},${u.isBanned ? 'Yes' : 'No'},${u.createdAt.toISOString()},${u.lastActiveAt ? u.lastActiveAt.toISOString() : ''}`
+      `${u.telegramId},"${u.username || ''}",${u.gender || ''},${u.age || ''},${u.botId},${vipSet.has(u.userId) ? 'Yes' : 'No'},${u.banned ? 'Yes' : 'No'},${u.createdAt.toISOString()},${u.lastActiveAt ? u.lastActiveAt.toISOString() : ''}`
     ).join('\n');
     
     res.setHeader('Content-Type', 'text/csv');
@@ -3207,7 +3217,7 @@ app.get('/api/admin/csv/export-users', requireAuth, async (req, res) => {
       targetType: 'users',
       details: { count: users.length, status, botId },
       success: true
-    });
+    }).catch(() => {});
   } catch (error) {
     console.error('CSV export error:', error);
     res.status(500).json({ error: error.message });
@@ -3258,7 +3268,7 @@ app.post('/api/admin/csv/import-actions', requireAuth, upload.single('file'), as
       targetType: 'users',
       details: { count: updated[0], totalIds: telegramIds.length },
       success: true
-    });
+    }).catch(() => {});
     
     res.json({ success: true, updated: updated[0], total: telegramIds.length });
   } catch (error) {
