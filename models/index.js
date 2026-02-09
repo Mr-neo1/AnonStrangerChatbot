@@ -43,15 +43,23 @@ async function ensureIndexes() {
   return Promise.all(tasks);
 }
 
-// Setup model associations
+// Setup model associations (only if not already defined)
 function setupAssociations() {
-  // Referral associations
-  Referral.belongsTo(User, { as: 'inviter', foreignKey: 'inviterId' });
-  Referral.belongsTo(User, { as: 'invited', foreignKey: 'invitedId' });
+  // Only setup associations if they haven't been defined yet
+  if (!Referral.associations.inviter) {
+    Referral.belongsTo(User, { as: 'inviter', foreignKey: 'inviterId' });
+  }
+  if (!Referral.associations.invited) {
+    Referral.belongsTo(User, { as: 'invited', foreignKey: 'invitedId' });
+  }
   
   // Chat associations - using different aliases to avoid naming collision with existing columns
-  Chat.belongsTo(User, { as: 'firstUser', foreignKey: 'user1' });
-  Chat.belongsTo(User, { as: 'secondUser', foreignKey: 'user2' });
+  if (!Chat.associations.firstUser) {
+    Chat.belongsTo(User, { as: 'firstUser', foreignKey: 'user1' });
+  }
+  if (!Chat.associations.secondUser) {
+    Chat.belongsTo(User, { as: 'secondUser', foreignKey: 'user2' });
+  }
 }
 
 setupAssociations();
