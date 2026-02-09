@@ -1447,12 +1447,13 @@ app.get('/api/admin/bots', requireAuth, async (req, res) => {
     const { Op } = require('sequelize');
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const chatCounts = await Chat.findAll({
-      attributes: ['botId', [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
-      where: { createdAt: { [Op.gte]: todayStart } },
-      group: ['botId'],
-      raw: true
-    }).catch(() => []);
+    const chatCounts = await sequelize.query(
+      `SELECT u."botId", COUNT(c.id) as count FROM "Chats" c 
+       JOIN "User" u ON c."user1" = u."userId" 
+       WHERE c."createdAt" >= :todayStart
+       GROUP BY u."botId"`,
+      { replacements: { todayStart }, type: sequelize.QueryTypes.SELECT }
+    ).catch(() => []);
     const chatMap = {};
     for (const row of chatCounts) {
       chatMap[row.botId] = parseInt(row.count) || 0;
@@ -1690,18 +1691,18 @@ app.get('/api/admin/analytics', requireAuth, async (req, res) => {
           where: { createdAt: { [Op.between]: [dayStart, dayEnd] } }
         }).catch(() => 0),
         
-        // VIP revenue (stars)
+        // VIP revenue (stars) - use payload to identify VIP payments
         StarTransaction.sum('amount', {
           where: {
-            type: 'vip',
+            payload: { [Op.like]: '%vip%' },
             createdAt: { [Op.between]: [dayStart, dayEnd] }
           }
         }).then(sum => sum || 0).catch(() => 0),
         
-        // Lock revenue (stars)
+        // Lock revenue (stars) - use payload to identify lock payments
         StarTransaction.sum('amount', {
           where: {
-            type: 'lock',
+            payload: { [Op.like]: '%lock%' },
             createdAt: { [Op.between]: [dayStart, dayEnd] }
           }
         }).then(sum => sum || 0).catch(() => 0),
@@ -2768,7 +2769,7 @@ app.get('/api/admin/users/:userId/activity', requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     
     // Chat stats
-    const totalChats = await Chat.count({ where: { [Op.or]: [{ userId1: userId }, { userId2: userId }] } });
+    const totalChats = await Chat.count({ where: { [Op.or]: [{ user1: userId }, { user2: userId }] } });
     
     // Payment history
     const payments = await StarTransaction.findAll({
@@ -2780,7 +2781,7 @@ app.get('/api/admin/users/:userId/activity', requireAuth, async (req, res) => {
     // VIP history
     const vipSubs = await VipSubscription.findAll({
       where: { userId },
-      order: [['startedAt', 'DESC']],
+      order: [['createdAt', 'DESC']],
       limit: 5
     });
     
@@ -2862,15 +2863,15 @@ app.get('/api/admin/analytics/revenue', requireAuth, async (req, res) => {
     // Total revenue from stars (all transactions are considered successful once recorded)
     const totalStarsRevenue = await StarTransaction.sum('amount') || 0;
     
-    // VIP revenue
-    const vipRevenue = await VipSubscription.sum('starsPaid', {
-      where: { starsPaid: { [Op.ne]: null } }
+    // VIP revenue (use StarTransaction payload to identify VIP payments)
+    const vipRevenue = await StarTransaction.sum('amount', {
+      where: { payload: { [Op.like]: '%vip%' } }
     }) || 0;
     
-    // Lock chat revenue
+    // Lock chat revenue (from Locks table starsPaid)
     const lockRevenue = await LockHistory.sum('starsPaid', {
       where: { starsPaid: { [Op.ne]: null } }
-    }) || 0;
+    }).catch(() => 0) || 0;
     
     // Revenue by bot
     const revenueByBot = await sequelize.query(
@@ -3255,7 +3256,7 @@ app.post('/api/admin/csv/import-actions', requireAuth, upload.single('file'), as
     
     // Perform action
     const updated = await User.update(
-      { isBanned: action === 'ban' },
+      { banned: action === 'ban' },
       { where: { telegramId: { [Op.in]: telegramIds } } }
     );
     
@@ -3284,8 +3285,8 @@ app.get('/api/admin/csv/export-analytics', requireAuth, async (req, res) => {
     
     // Get aggregated data
     const [chatStats, starStats, vipStats] = await Promise.all([
-      Chat.count({ where: { status: 'active' } }),
-      StarTransaction.sum('amountStars'),
+      Chat.count({ where: { active: true } }),
+      StarTransaction.sum('amount'),
       VipSubscription.count()
     ]);
     
