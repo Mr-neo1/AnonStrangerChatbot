@@ -131,7 +131,8 @@
         <button onclick="switchTab('lockchat')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="lockchat">🔒 Lock Chat</button>
         <button onclick="switchTab('broadcast')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="broadcast">📢 Broadcast</button>
         <div class="pt-2 mt-2 border-t border-dark-800">
-          <p class="px-3 text-xs font-semibold text-dark-500 uppercase mb-1">Settings</p>
+          <p class="px-3 text-xs font-semibold text-dark-500 uppercase mb-1">System</p>
+          <button onclick="switchTab('monitoring')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="monitoring">🔍 Monitoring</button>
           <button onclick="switchTab('messages')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="messages">💬 Bot Messages</button>
           <button onclick="switchTab('config')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="config">⚙️ Config</button>
           <button onclick="switchTab('export')" class="nav-item w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-dark-800 text-dark-300" data-tab="export">📤 Export</button>
@@ -636,48 +637,70 @@
 
         <!-- Lock Chat Tab -->
         <section id="tab-lockchat" class="tab-content hidden fade-in">
-          <div class="grid md:grid-cols-2 gap-4 mb-4">
-            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
-              <h3 class="font-semibold text-white mb-2">🔒 Active Locks</h3>
-              <p class="text-sm text-dark-400 mb-4">Currently active chat locks</p>
-              <div id="activeLocksCount" class="text-3xl font-bold text-primary-400">-</div>
-              <button onclick="loadLockData()" class="mt-3 text-sm text-primary-400 hover:text-primary-300">🔄 Refresh</button>
+          <div class="grid lg:grid-cols-4 gap-4 mb-4">
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-dark-400 text-sm mb-1">🔒 Active Locks</div>
+              <div id="activeLocksCount" class="text-2xl font-bold text-primary-400">-</div>
             </div>
-            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
-              <h3 class="font-semibold text-white mb-2">📊 Lock Statistics</h3>
-              <p class="text-sm text-dark-400 mb-4">Total locks created today</p>
-              <div id="lockStatsToday" class="text-3xl font-bold text-green-400">-</div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-dark-400 text-sm mb-1">📊 Total Locks</div>
+              <div id="totalLocksCount" class="text-2xl font-bold text-blue-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-dark-400 text-sm mb-1">💰 Revenue (Stars)</div>
+              <div id="lockRevenue" class="text-2xl font-bold text-yellow-400">-</div>
+            </div>
+            <div class="stat-card bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="text-dark-400 text-sm mb-1">⏱️ Avg Duration</div>
+              <div id="avgLockDuration" class="text-2xl font-bold text-green-400">-</div>
             </div>
           </div>
           
-          <div class="grid md:grid-cols-2 gap-4">
+          <!-- Active Locks with Countdown -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 overflow-hidden mb-4">
+            <div class="p-4 border-b border-dark-800 flex items-center justify-between">
+              <h3 class="font-semibold">🔓 Active Locks (Real-time)</h3>
+              <button onclick="loadLockData()" class="text-sm text-primary-400 hover:text-primary-300">🔄 Refresh</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-dark-800 text-dark-300">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Chat ID</th>
+                    <th class="px-4 py-3 text-left">User ID</th>
+                    <th class="px-4 py-3 text-left">Time Remaining</th>
+                    <th class="px-4 py-3 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="activeLocksBody" class="divide-y divide-dark-800"></tbody>
+              </table>
+            </div>
+            <div id="noActiveLocks" class="p-8 text-center text-dark-400 hidden">No active locks</div>
+          </div>
+
+          <!-- Lock Duration Breakdown -->
+          <div class="grid lg:grid-cols-2 gap-4 mb-4">
             <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
-              <h3 class="font-semibold text-white mb-4">🔓 Active Locks List</h3>
-              <div id="activeLocksTable" class="overflow-x-auto">
-                <table class="w-full text-sm">
-                  <thead class="bg-dark-800">
-                    <tr>
-                      <th class="px-3 py-2 text-left">Chat ID</th>
-                      <th class="px-3 py-2 text-left">User ID</th>
-                      <th class="px-3 py-2 text-left">TTL</th>
-                      <th class="px-3 py-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="activeLocksBody" class="divide-y divide-dark-800"></tbody>
-                </table>
-              </div>
-              <p id="noActiveLocks" class="text-dark-400 text-sm hidden">No active locks</p>
+              <h3 class="font-semibold mb-4">📈 Locks by Duration</h3>
+              <canvas id="lockDurationChart" height="100"></canvas>
             </div>
             
             <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
-              <h3 class="font-semibold text-white mb-4">💰 Grant Lock Credits</h3>
-              <div class="space-y-3">
-                <div>
-                  <label class="block text-sm text-dark-300 mb-2">User Telegram ID</label>
-                  <input type="text" id="lockCreditUserId" class="input-field" placeholder="Enter Telegram ID">
-                </div>
-                <div>
-                  <label class="block text-sm text-dark-300 mb-2">Minutes to Grant</label>
+              <h3 class="font-semibold mb-4">🕒 Recent Lock Purchases</h3>
+              <div id="recentLocks" class="space-y-2 max-h-64 overflow-y-auto"></div>
+            </div>
+          </div>
+          
+          <!-- Grant Lock Credits -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+            <h3 class="font-semibold text-white mb-4">💰 Grant Lock Credits</h3>
+            <div class="grid md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">User Telegram ID</label>
+                <input type="text" id="lockCreditUserId" class="input-field" placeholder="Enter Telegram ID">
+              </div>
+              <div>
+                <label class="block text-sm text-dark-300 mb-2">Minutes to Grant</label>
                   <select id="lockCreditMinutes" class="input-field">
                     <option value="5">5 Minutes</option>
                     <option value="10">10 Minutes</option>
@@ -828,6 +851,83 @@
               </select>
             </div>
             <div id="auditLogsContainer" class="divide-y divide-dark-800 max-h-[500px] overflow-y-auto"></div>
+          </div>
+        </section>
+
+        <!-- Monitoring Tab -->
+        <section id="tab-monitoring" class="tab-content hidden fade-in">
+          <!-- System Health Cards -->
+          <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="stat-card">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-dark-400">System Uptime</span>
+                <span class="text-2xl">⏱️</span>
+              </div>
+              <div class="text-2xl font-bold text-white" id="stat-uptime">Loading...</div>
+            </div>
+            <div class="stat-card">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-dark-400">Memory Usage</span>
+                <span class="text-2xl">💾</span>
+              </div>
+              <div class="text-2xl font-bold text-white" id="stat-memory">Loading...</div>
+            </div>
+            <div class="stat-card">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-dark-400">CPU Usage</span>
+                <span class="text-2xl">⚡</span>
+              </div>
+              <div class="text-2xl font-bold text-white" id="stat-cpu">Loading...</div>
+            </div>
+            <div class="stat-card">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-dark-400">Active Connections</span>
+                <span class="text-2xl">🔌</span>
+              </div>
+              <div class="text-2xl font-bold text-white" id="stat-connections">Loading...</div>
+            </div>
+          </div>
+
+          <!-- Bot Status Grid -->
+          <div class="bg-dark-900 rounded-xl border border-dark-800 p-4 mb-6">
+            <h3 class="text-lg font-semibold text-white mb-4">🤖 Bot Status</h3>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4" id="bot-status-grid">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Real-Time Metrics Charts -->
+          <div class="grid lg:grid-cols-2 gap-6 mb-6">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="text-lg font-semibold text-white mb-4">📊 Request Rate (Last Hour)</h3>
+              <canvas id="requestRateChart" height="200"></canvas>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <h3 class="text-lg font-semibold text-white mb-4">⏱️ Response Time (ms)</h3>
+              <canvas id="responseTimeChart" height="200"></canvas>
+            </div>
+          </div>
+
+          <!-- Recent Errors & Activity Feed -->
+          <div class="grid lg:grid-cols-2 gap-6">
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-white">🔴 Recent Errors</h3>
+                <button onclick="loadSystemMonitoring()" class="text-sm text-blue-400 hover:text-blue-300">🔄 Refresh</button>
+              </div>
+              <div class="space-y-2 max-h-96 overflow-y-auto" id="recent-errors">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+            <div class="bg-dark-900 rounded-xl border border-dark-800 p-4">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-white">📡 System Activity</h3>
+                <button onclick="loadSystemMonitoring()" class="text-sm text-blue-400 hover:text-blue-300">🔄 Refresh</button>
+              </div>
+              <div class="space-y-2 max-h-96 overflow-y-auto" id="system-activity">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1872,50 +1972,124 @@
     }
 
     // Lock Chat Functions
+    let lockRefreshInterval = null;
+    let lockDurationChart = null;
+    
     async function loadLockData() {
       try {
-        const data = await api('/lock-chat/stats');
-        document.getElementById('activeLocksCount').textContent = data.activeLocks || 0;
-        document.getElementById('lockStatsToday').textContent = data.locksToday || 0;
+        // Load analytics
+        const analytics = await api('/lock-chat/analytics');
         
-        // Populate active locks table
+        document.getElementById('activeLocksCount').textContent = (analytics.activeLocks || 0).toString();
+        document.getElementById('totalLocksCount').textContent = (analytics.totalLocks || 0).toLocaleString();
+        document.getElementById('lockRevenue').textContent = (analytics.lockRevenue || 0).toLocaleString() + ' ⭐';
+        
+        // Calculate average duration
+        if (analytics.locksByDuration && analytics.locksByDuration.length > 0) {
+          const totalDuration = analytics.locksByDuration.reduce((sum, l) => sum + (l.durationMinutes * l.count), 0);
+          const totalCount = analytics.locksByDuration.reduce((sum, l) => sum + parseInt(l.count), 0);
+          const avgDuration = totalCount > 0 ? Math.round(totalDuration / totalCount) : 0;
+          document.getElementById('avgLockDuration').textContent = avgDuration + ' min';
+          
+          // Lock duration chart
+          const ctx = document.getElementById('lockDurationChart').getContext('2d');
+          if (lockDurationChart) lockDurationChart.destroy();
+          
+          lockDurationChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: analytics.locksByDuration.map(l => `${l.durationMinutes} min`),
+              datasets: [{
+                label: 'Number of Locks',
+                data: analytics.locksByDuration.map(l => l.count),
+                backgroundColor: '#6366f1',
+                borderColor: '#4f46e5',
+                borderWidth: 1
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { beginAtZero: true, ticks: { color: '#64748b' } },
+                x: { ticks: { color: '#64748b' } }
+              }
+            }
+          });
+        } else {
+          document.getElementById('avgLockDuration').textContent = '-';
+        }
+        
+        // Load stats endpoint for active locks detail
+        const stats = await api('/lock-chat/stats');
+        
+        // Populate active locks table with countdown
         const tbody = document.getElementById('activeLocksBody');
         const noLocks = document.getElementById('noActiveLocks');
         
-        if (data.activeLocksDetail && data.activeLocksDetail.length > 0) {
+        if (stats.activeLocksDetail && stats.activeLocksDetail.length > 0) {
           noLocks.classList.add('hidden');
-          tbody.innerHTML = data.activeLocksDetail.map(lock => `
+          tbody.innerHTML = stats.activeLocksDetail.map(lock => `
             <tr class="hover:bg-dark-800/50">
-              <td class="px-3 py-2 font-mono text-xs">${lock.chatId}</td>
-              <td class="px-3 py-2 font-mono text-xs">${lock.userId}</td>
-              <td class="px-3 py-2"><span class="text-green-400">${formatTTL(lock.ttl)}</span></td>
-              <td class="px-3 py-2">
+              <td class="px-4 py-3 font-mono text-xs">${lock.chatId}</td>
+              <td class="px-4 py-3 font-mono text-xs">${lock.userId}</td>
+              <td class="px-4 py-3">
+                <span class="text-green-400 font-mono" data-ttl="${lock.ttl}" data-start="${Date.now()}">${formatTTL(lock.ttl)}</span>
+              </td>
+              <td class="px-4 py-3">
                 <button onclick="removeLock('${lock.chatId}', '${lock.userId}')" class="text-red-400 hover:text-red-300 text-xs">🗑️ Remove</button>
               </td>
             </tr>
           `).join('');
+          
+          // Start countdown
+          startLockCountdown();
         } else {
           tbody.innerHTML = '';
           noLocks.classList.remove('hidden');
+          stopLockCountdown();
         }
         
-        // Populate lock history
-        if (data.recentHistory) {
-          const historyBody = document.getElementById('lockHistoryBody');
-          historyBody.innerHTML = data.recentHistory.map(h => `
-            <tr class="hover:bg-dark-800/50">
-              <td class="px-3 py-2 font-mono text-xs">${h.id}</td>
-              <td class="px-3 py-2 font-mono text-xs">${h.chatId}</td>
-              <td class="px-3 py-2 font-mono text-xs">${h.userId}</td>
-              <td class="px-3 py-2">${h.durationMinutes} min</td>
-              <td class="px-3 py-2">${h.starsPaid || 'Free'}</td>
-              <td class="px-3 py-2 text-xs">${new Date(h.createdAt).toLocaleString()}</td>
-              <td class="px-3 py-2 text-xs">${new Date(h.expiresAt).toLocaleString()}</td>
-            </tr>
+        // Recent locks
+        if (analytics.recentLocks && analytics.recentLocks.length > 0) {
+          const recentDiv = document.getElementById('recentLocks');
+          recentDiv.innerHTML = analytics.recentLocks.map(lock => `
+            <div class="p-3 bg-dark-800 rounded-lg flex items-center justify-between">
+              <div>
+                <div class="text-sm font-semibold text-white">User ${lock.userId}</div>
+                <div class="text-xs text-dark-400">${lock.durationMinutes} min • ${lock.starsPaid || 0} ⭐</div>
+              </div>
+              <div class="text-xs text-dark-400">${new Date(lock.createdAt).toLocaleTimeString()}</div>
+            </div>
           `).join('');
         }
       } catch (err) {
         console.error('Failed to load lock data:', err);
+      }
+    }
+
+    function startLockCountdown() {
+      if (lockRefreshInterval) return;
+      lockRefreshInterval = setInterval(() => {
+        document.querySelectorAll('[data-ttl]').forEach(el => {
+          const startTime = parseInt(el.getAttribute('data-start'));
+          const initialTTL = parseInt(el.getAttribute('data-ttl'));
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          const remaining = Math.max(0, initialTTL - elapsed);
+          el.textContent = formatTTL(remaining);
+          if (remaining <= 0) {
+            el.classList.remove('text-green-400');
+            el.classList.add('text-red-400');
+          }
+        });
+      }, 1000);
+    }
+
+    function stopLockCountdown() {
+      if (lockRefreshInterval) {
+        clearInterval(lockRefreshInterval);
+        lockRefreshInterval = null;
       }
     }
 
@@ -1942,6 +2116,156 @@
       } catch (err) {
         toast('Failed to grant credits', 'error');
       }
+    }
+
+    // === System Monitoring ===
+    let requestRateChart, responseTimeChart;
+    
+    async function loadSystemMonitoring() {
+      try {
+        const data = await api('/monitoring/health');
+        
+        // Update system stats
+        document.getElementById('stat-uptime').textContent = formatUptime(data.uptime);
+        document.getElementById('stat-memory').textContent = `${data.memory.usedPercent}%`;
+        document.getElementById('stat-cpu').textContent = `${data.cpu.usage}%`;
+        document.getElementById('stat-connections').textContent = data.activeConnections;
+        
+        // Bot status grid
+        const botStatusGrid = document.getElementById('bot-status-grid');
+        botStatusGrid.innerHTML = data.bots.map(bot => `
+          <div class="bg-dark-800 rounded-lg p-3 ${bot.isRunning ? 'border border-green-500/30' : 'border border-red-500/30'}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-white font-medium">${bot.name}</span>
+              <span class="${bot.isRunning ? 'text-green-400' : 'text-red-400'}">${bot.isRunning ? '🟢' : '🔴'}</span>
+            </div>
+            <div class="text-sm text-dark-400">Uptime: ${formatUptime(bot.uptime)}</div>
+            <div class="text-sm text-dark-400">Requests: ${bot.requestCount}</div>
+          </div>
+        `).join('');
+        
+        // Recent errors
+        const errorsDiv = document.getElementById('recent-errors');
+        if (data.recentErrors && data.recentErrors.length > 0) {
+          errorsDiv.innerHTML = data.recentErrors.map(err => `
+            <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
+                  <div class="text-red-400 font-medium text-sm">${err.message}</div>
+                  <div class="text-dark-400 text-xs mt-1">${err.stack ? err.stack.substring(0, 100) : ''}</div>
+                </div>
+                <div class="text-xs text-dark-500">${formatTimeAgo(err.timestamp)}</div>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          errorsDiv.innerHTML = '<div class="text-center text-dark-400 py-4">✅ No recent errors</div>';
+        }
+        
+        // System activity
+        const activityDiv = document.getElementById('system-activity');
+        if (data.recentActivity && data.recentActivity.length > 0) {
+          activityDiv.innerHTML = data.recentActivity.map(act => `
+            <div class="bg-dark-800 rounded-lg p-3">
+              <div class="flex items-center justify-between">
+                <div class="flex-1">
+                  <div class="text-white text-sm">${act.event}</div>
+                  <div class="text-dark-400 text-xs mt-1">${act.details}</div>
+                </div>
+                <div class="text-xs text-dark-500">${formatTimeAgo(act.timestamp)}</div>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          activityDiv.innerHTML = '<div class="text-center text-dark-400 py-4">No recent activity</div>';
+        }
+        
+        // Initialize or update charts
+        initMonitoringCharts(data.metrics);
+        
+      } catch (err) {
+        console.error('Failed to load monitoring data:', err);
+      }
+    }
+    
+    function initMonitoringCharts(metrics) {
+      const chartConfig = {
+        type: 'line',
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } }
+          }
+        }
+      };
+      
+      // Request Rate Chart
+      if (!requestRateChart) {
+        const ctx1 = document.getElementById('requestRateChart');
+        requestRateChart = new Chart(ctx1, {
+          ...chartConfig,
+          data: {
+            labels: metrics.requestRate.labels,
+            datasets: [{
+              label: 'Requests/min',
+              data: metrics.requestRate.values,
+              borderColor: 'rgb(59, 130, 246)',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              fill: true,
+              tension: 0.4
+            }]
+          }
+        });
+      } else {
+        requestRateChart.data.labels = metrics.requestRate.labels;
+        requestRateChart.data.datasets[0].data = metrics.requestRate.values;
+        requestRateChart.update();
+      }
+      
+      // Response Time Chart
+      if (!responseTimeChart) {
+        const ctx2 = document.getElementById('responseTimeChart');
+        responseTimeChart = new Chart(ctx2, {
+          ...chartConfig,
+          data: {
+            labels: metrics.responseTime.labels,
+            datasets: [{
+              label: 'Response Time (ms)',
+              data: metrics.responseTime.values,
+              borderColor: 'rgb(34, 197, 94)',
+              backgroundColor: 'rgba(34, 197, 94, 0.1)',
+              fill: true,
+              tension: 0.4
+            }]
+          }
+        });
+      } else {
+        responseTimeChart.data.labels = metrics.responseTime.labels;
+        responseTimeChart.data.datasets[0].data = metrics.responseTime.values;
+        responseTimeChart.update();
+      }
+    }
+    
+    function formatUptime(seconds) {
+      if (!seconds) return 'N/A';
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      if (days > 0) return `${days}d ${hours}h`;
+      if (hours > 0) return `${hours}h ${mins}m`;
+      return `${mins}m`;
+    }
+    
+    function formatTimeAgo(timestamp) {
+      const now = Date.now();
+      const diff = Math.floor((now - new Date(timestamp).getTime()) / 1000);
+      if (diff < 60) return `${diff}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
     }
 
     async function checkUserCredits() {
