@@ -3171,6 +3171,422 @@ app.get('/api/admin/monitoring/health', requireAuth, async (req, res) => {
   }
 });
 
+// ==================== CSV BULK OPERATIONS ====================
+
+// Export users to CSV
+app.get('/api/admin/csv/export-users', requireAuth, async (req, res) => {
+  try {
+    const { status, botId } = req.query;
+    const where = {};
+    
+    if (status) {
+      if (status === 'banned') where.isBanned = true;
+      else if (status === 'active') where.isBanned = false;
+    }
+    if (botId) where.botId = botId;
+    
+    const users = await User.findAll({ where, order: [['createdAt', 'DESC']] });
+    
+    // Generate CSV
+    const csvHeader = 'Telegram ID,Username,Gender,Age,Bot ID,VIP,Banned,Created At,Last Active\n';
+    const csvRows = users.map(u => 
+      `${u.telegramId},"${u.username || ''}",${u.gender || ''},${u.age || ''},${u.botId},${u.isVip ? 'Yes' : 'No'},${u.isBanned ? 'Yes' : 'No'},${u.createdAt.toISOString()},${u.lastActiveAt ? u.lastActiveAt.toISOString() : ''}`
+    ).join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="users_export_${Date.now()}.csv"`);
+    res.send(csvHeader + csvRows);
+    
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'export',
+      action: 'export_csv',
+      targetType: 'users',
+      details: { count: users.length, status, botId },
+      success: true
+    });
+  } catch (error) {
+    console.error('CSV export error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Import users from CSV (ban/unban operations)
+app.post('/api/admin/csv/import-actions', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    const { action } = req.body; // 'ban' or 'unban'
+    const file = req.file;
+    
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!['ban', 'unban'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action. Use "ban" or "unban"' });
+    }
+    
+    // Parse CSV
+    const csvText = file.buffer.toString('utf-8');
+    const lines = csvText.split('\n').filter(line => line.trim());
+    const telegramIds = [];
+    
+    // Skip header if exists
+    const startIndex = lines[0].toLowerCase().includes('telegram') ? 1 : 0;
+    
+    for (let i = startIndex; i < lines.length; i++) {
+      const parts = lines[i].split(',');
+      const id = parts[0].trim().replace(/"/g, '');
+      if (id && !isNaN(id)) telegramIds.push(id);
+    }
+    
+    if (telegramIds.length === 0) {
+      return res.status(400).json({ error: 'No valid Telegram IDs found in CSV' });
+    }
+    
+    // Perform action
+    const updated = await User.update(
+      { isBanned: action === 'ban' },
+      { where: { telegramId: { [Op.in]: telegramIds } } }
+    );
+    
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'bulk_action',
+      action: `csv_${action}`,
+      targetType: 'users',
+      details: { count: updated[0], totalIds: telegramIds.length },
+      success: true
+    });
+    
+    res.json({ success: true, updated: updated[0], total: telegramIds.length });
+  } catch (error) {
+    console.error('CSV import error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export analytics to CSV
+app.get('/api/admin/csv/export-analytics', requireAuth, async (req, res) => {
+  try {
+    const { Chat, StarTransaction, VipSubscription } = require('./models');
+    
+    // Get aggregated data
+    const [chatStats, starStats, vipStats] = await Promise.all([
+      Chat.count({ where: { status: 'active' } }),
+      StarTransaction.sum('amountStars'),
+      VipSubscription.count()
+    ]);
+    
+    const totalRevenue = (starStats || 0) * 0.013; // Assuming 1 star = $0.013
+    
+    // Generate CSV
+    const csvHeader = 'Metric,Value\n';
+    const csvRows = [
+      `Total Active Chats,${chatStats}`,
+      `Total Star Transactions,${starStats || 0}`,
+      `Total VIP Subscriptions,${vipStats}`,
+      `Total Revenue (USD),${totalRevenue.toFixed(2)}`,
+      `Export Date,${new Date().toISOString()}`
+    ].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="analytics_export_${Date.now()}.csv"`);
+    res.send(csvHeader + csvRows);
+  } catch (error) {
+    console.error('Analytics CSV export error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== SCHEDULED BROADCASTS ====================
+
+// In-memory scheduled broadcasts storage (in production, use database)
+const scheduledBroadcasts = new Map();
+let broadcastIdCounter = 1;
+
+// Create scheduled broadcast
+app.post('/api/admin/scheduled-broadcasts', requireAuth, upload.single('media'), async (req, res) => {
+  try {
+    const { message, audience, scheduledTime, recurring, recurringInterval, botId } = req.body;
+    const mediaFile = req.file;
+    
+    if (!message && !mediaFile) {
+      return res.status(400).json({ error: 'Message or media required' });
+    }
+    
+    const scheduledDate = new Date(scheduledTime);
+    if (scheduledDate <= new Date()) {
+      return res.status(400).json({ error: 'Scheduled time must be in the future' });
+    }
+    
+    const broadcast = {
+      id: broadcastIdCounter++,
+      message,
+      audience: audience || 'all',
+      botId: botId || null,
+      scheduledTime: scheduledDate,
+      recurring: recurring === 'true' || recurring === true,
+      recurringInterval: recurring ? recurringInterval : null, // 'daily', 'weekly'
+      status: 'pending',
+      createdAt: new Date(),
+      createdBy: req.adminId,
+      media: mediaFile ? {
+        buffer: mediaFile.buffer.toString('base64'),
+        mimetype: mediaFile.mimetype,
+        originalname: mediaFile.originalname
+      } : null
+    };
+    
+    scheduledBroadcasts.set(broadcast.id, broadcast);
+    
+    // Schedule execution
+    schedulebroadcastExecution(broadcast);
+    
+    res.json({ success: true, broadcast: { ...broadcast, media: broadcast.media ? { name: mediaFile.originalname } : null } });
+  } catch (error) {
+    console.error('Schedule broadcast error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all scheduled broadcasts
+app.get('/api/admin/scheduled-broadcasts', requireAuth, async (req, res) => {
+  try {
+    const broadcasts = Array.from(scheduledBroadcasts.values())
+      .map(b => ({
+        ...b,
+        media: b.media ? { name: b.media.originalname, size: b.media.buffer.length } : null,
+        buffer: undefined // Don't send buffer in list
+      }))
+      .sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
+    
+    res.json({ broadcasts });
+  } catch (error) {
+    console.error('Get scheduled broadcasts error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete scheduled broadcast
+app.delete('/api/admin/scheduled-broadcasts/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const broadcast = scheduledBroadcasts.get(parseInt(id));
+    
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    // Cancel timeout if exists
+    if (broadcast.timeoutId) clearTimeout(broadcast.timeoutId);
+    
+    scheduledBroadcasts.delete(parseInt(id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete scheduled broadcast error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to schedule broadcast execution
+function schedulebroadcastExecution(broadcast) {
+  const delay = new Date(broadcast.scheduledTime) - new Date();
+  
+  if (delay > 0) {
+    const timeoutId = setTimeout(async () => {
+      try {
+        // Execute broadcast
+        const { enqueueBroadcast } = require('./services/queueService');
+        
+        const broadcastData = {
+          message: broadcast.message,
+          audience: broadcast.audience,
+          botId: broadcast.botId,
+          meta: { source: 'scheduled_broadcast', scheduledId: broadcast.id }
+        };
+        
+        if (broadcast.media) {
+          broadcastData.media = {
+            buffer: broadcast.media.buffer,
+            mimetype: broadcast.media.mimetype,
+            originalname: broadcast.media.originalname,
+            type: broadcast.media.mimetype.startsWith('image/') ? 'photo' : 
+                  broadcast.media.mimetype.startsWith('video/') ? 'video' : 'document'
+          };
+        }
+        
+        await enqueueBroadcast(broadcastData);
+        
+        // Update status
+        broadcast.status = 'sent';
+        broadcast.sentAt = new Date();
+        
+        // If recurring, schedule next execution
+        if (broadcast.recurring) {
+          const nextTime = new Date(broadcast.scheduledTime);
+          if (broadcast.recurringInterval === 'daily') {
+            nextTime.setDate(nextTime.getDate() + 1);
+          } else if (broadcast.recurringInterval === 'weekly') {
+            nextTime.setDate(nextTime.getDate() + 7);
+          }
+          
+          broadcast.scheduledTime = nextTime;
+          broadcast.status = 'pending';
+          schedulebroadcastExecution(broadcast);
+        } else {
+          // Remove non-recurring broadcast after 24 hours
+          setTimeout(() => scheduledBroadcasts.delete(broadcast.id), 24 * 60 * 60 * 1000);
+        }
+      } catch (err) {
+        console.error('Scheduled broadcast execution error:', err);
+        broadcast.status = 'failed';
+        broadcast.error = err.message;
+      }
+    }, delay);
+    
+    broadcast.timeoutId = timeoutId;
+  }
+}
+
+// ==================== BOT CONTROLS ====================
+
+// Get bot status
+app.get('/api/admin/bots/status', requireAuth, async (req, res) => {
+  try {
+    const bots = require('./config/bots');
+    const botStatus = bots.map((bot, index) => ({
+      id: index + 1,
+      name: bot.name || `Bot ${index + 1}`,
+      token: bot.token.substring(0, 10) + '...',
+      isRunning: true, // In PM2 environment, assume running
+      uptime: process.uptime(),
+      restartCount: 0 // Would need PM2 API to get real data
+    }));
+    
+    res.json({ bots: botStatus });
+  } catch (error) {
+    console.error('Bot status error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Restart specific bot (requires PM2 integration)
+app.post('/api/admin/bots/:botId/restart', requireAuth, async (req, res) => {
+  try {
+    const { botId } = req.params;
+    
+    // In a real implementation, you'd use PM2 API:
+    // const pm2 = require('pm2');
+    // pm2.restart('bot-name', callback);
+    
+    // For now, return success message
+    res.json({ 
+      success: true, 
+      message: `Bot ${botId} restart requested (requires PM2 integration)`,
+      note: 'Use PM2 commands: pm2 restart chatbot-system'
+    });
+  } catch (error) {
+    console.error('Bot restart error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update bot configuration
+app.put('/api/admin/bots/:botId/config', requireAuth, async (req, res) => {
+  try {
+    const { botId } = req.params;
+    const { setting, value } = req.body;
+    
+    // Store bot-specific config in database
+    const AppConfig = require('./models/appConfigModel');
+    await AppConfig.upsert({
+      key: `bot_${botId}_${setting}`,
+      value: JSON.stringify(value),
+      updatedAt: new Date()
+    });
+    
+    res.json({ success: true, setting, value });
+  } catch (error) {
+    console.error('Bot config update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== ENHANCED ERROR LOGGING ====================
+
+// In-memory error log (last 100 errors)
+const errorLog = [];
+const MAX_ERROR_LOG_SIZE = 100;
+
+// Global error logger function
+function logError(error, context = {}) {
+  const errorEntry = {
+    id: Date.now(),
+    timestamp: new Date(),
+    message: error.message,
+    stack: error.stack,
+    context,
+    severity: error.severity || 'error'
+  };
+  
+  errorLog.unshift(errorEntry);
+  if (errorLog.length > MAX_ERROR_LOG_SIZE) {
+    errorLog.pop();
+  }
+  
+  console.error('Error logged:', errorEntry);
+}
+
+// Get error logs
+app.get('/api/admin/errors', requireAuth, async (req, res) => {
+  try {
+    const { severity, limit = 50 } = req.query;
+    
+    let errors = errorLog;
+    if (severity) {
+      errors = errors.filter(e => e.severity === severity);
+    }
+    
+    res.json({ errors: errors.slice(0, parseInt(limit)) });
+  } catch (error) {
+    console.error('Get errors error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear error logs
+app.delete('/api/admin/errors', requireAuth, async (req, res) => {
+  try {
+    const clearedCount = errorLog.length;
+    errorLog.length = 0;
+    res.json({ success: true, cleared: clearedCount });
+  } catch (error) {
+    console.error('Clear errors error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export error logs to CSV
+app.get('/api/admin/errors/export', requireAuth, async (req, res) => {
+  try {
+    const csvHeader = 'Timestamp,Severity,Message,Context\n';
+    const csvRows = errorLog.map(e => 
+      `"${e.timestamp.toISOString()}","${e.severity}","${e.message.replace(/"/g, '""')}","${JSON.stringify(e.context).replace(/"/g, '""')}"`
+    ).join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="errors_export_${Date.now()}.csv"`);
+    res.send(csvHeader + csvRows);
+  } catch (error) {
+    console.error('Error export error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Make logError available globally
+global.logAdminError = logError;
+
 // ==================== START SERVER ====================
 
 let server = null;
