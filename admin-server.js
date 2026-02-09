@@ -2917,13 +2917,13 @@ app.get('/api/admin/bots/:botId/stats', requireAuth, async (req, res) => {
     const chatCount = await Chat.count({
       where: {
         [Op.or]: [
-          { '$user1.botId$': botId },
-          { '$user2.botId$': botId }
+          { '$firstUser.botId$': botId },
+          { '$secondUser.botId$': botId }
         ]
       },
       include: [
-        { model: User, as: 'user1', attributes: [] },
-        { model: User, as: 'user2', attributes: [] }
+        { model: User, as: 'firstUser', attributes: [] },
+        { model: User, as: 'secondUser', attributes: [] }
       ]
     });
     

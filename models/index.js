@@ -49,9 +49,9 @@ function setupAssociations() {
   Referral.belongsTo(User, { as: 'inviter', foreignKey: 'inviterId' });
   Referral.belongsTo(User, { as: 'invited', foreignKey: 'invitedId' });
   
-  // Chat associations
-  Chat.belongsTo(User, { as: 'user1', foreignKey: 'userId1' });
-  Chat.belongsTo(User, { as: 'user2', foreignKey: 'userId2' });
+  // Chat associations - using different aliases to avoid naming collision with existing columns
+  Chat.belongsTo(User, { as: 'firstUser', foreignKey: 'user1' });
+  Chat.belongsTo(User, { as: 'secondUser', foreignKey: 'user2' });
 }
 
 setupAssociations();
