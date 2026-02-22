@@ -17,12 +17,12 @@ module.exports = {
       env: {
         NODE_ENV: 'development',
         CLUSTER_MODE: 'false',
-        ENABLE_CROSS_BOT_MATCHING: 'true'
+        ENABLE_CROSS_BOT_MATCHING: 'false'
       },
       env_production: {
         NODE_ENV: 'production',
         CLUSTER_MODE: 'false',
-        ENABLE_CROSS_BOT_MATCHING: 'true'
+        ENABLE_CROSS_BOT_MATCHING: 'false'
       },
 
       error_file: './logs/bot-err.log',

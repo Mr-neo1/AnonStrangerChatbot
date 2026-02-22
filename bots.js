@@ -16,6 +16,10 @@ let botsById = new Map();
 let isRestarting = false;
 let isInitializing = false; // Prevents restart during initial startup
 
+// Lightweight non-polling bot instances for admin-server context
+let _adminBots = null;
+let _adminBotsById = null;
+
 /**
  * Gracefully stop all bots and clean up resources
  */
@@ -228,11 +232,58 @@ async function initBots(skipLock = false) {
 }
 
 function getBotById(botId) {
-  return botsById.get(botId);
+  const bot = botsById.get(botId);
+  if (bot) return bot;
+  
+  // Fallback: try admin (non-polling) bots if no polling bots initialized
+  if (bots.length === 0) {
+    const adminBots = _getOrCreateAdminBots();
+    if (_adminBotsById) return _adminBotsById.get(botId) || null;
+  }
+  return null;
 }
 
 function getAllBots() {
-  return bots.slice();
+  if (bots.length > 0) return bots.slice();
+  
+  // Fallback: create lightweight non-polling bot instances (admin-server context)
+  return _getOrCreateAdminBots();
+}
+
+/**
+ * Create lightweight non-polling bot instances for API-only operations
+ * (sendMessage, getChat, etc.) without conflicting with the main bot process.
+ * Used by admin-server.js which runs as a separate PM2 process.
+ */
+function _getOrCreateAdminBots() {
+  if (_adminBots) return _adminBots.slice();
+  
+  try {
+    const TelegramBot = require('node-telegram-bot-api');
+    const cfg = require('./config/config');
+    const tokens = cfg.BOT_TOKENS || [];
+    
+    if (tokens.length === 0) return [];
+    
+    _adminBots = [];
+    _adminBotsById = new Map();
+    
+    for (let idx = 0; idx < tokens.length; idx++) {
+      const token = tokens[idx];
+      const botId = `bot_${idx}`;
+      const instance = new TelegramBot(token, { polling: false });
+      instance._meta = { botId, index: idx, isAdmin: false };
+      instance.botId = botId;
+      _adminBots.push(instance);
+      _adminBotsById.set(botId, instance);
+    }
+    
+    console.log(`📡 Created ${_adminBots.length} non-polling bot instance(s) for API operations`);
+    return _adminBots.slice();
+  } catch (err) {
+    console.error('Failed to create admin bot instances:', err.message);
+    return [];
+  }
 }
 
 /**
