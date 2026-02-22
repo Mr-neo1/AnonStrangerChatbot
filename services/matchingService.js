@@ -1,6 +1,7 @@
 const { redisClient } = require('../database/redisClient');
 const User = require('../models/userModel');
 const vipService = require('./vipService');
+const { isFeatureEnabled } = require('../config/featureFlags');
 
 /**
  * Multi-bot Matching Service
@@ -17,7 +18,7 @@ class MatchingService {
   // OPTIMIZED: Use LPOS to check membership without fetching entire lists (6x less data transfer)
   static async isUserQueued(botId, userId) {
     const keys = require('../utils/redisKeys');
-    const crossBotMode = process.env.ENABLE_CROSS_BOT_MATCHING === 'true';
+    const crossBotMode = isFeatureEnabled('ENABLE_CROSS_BOT_MATCHING');
     const uid = userId.toString();
     
     // Helper: Check if user exists in queue using LPOS (O(N) but no data transfer)
@@ -62,7 +63,7 @@ class MatchingService {
   static async enqueueUser(botId, userId) {
     const keys = require('../utils/redisKeys');
     botId = botId || 'default';
-    const crossBotMode = process.env.ENABLE_CROSS_BOT_MATCHING === 'true';
+    const crossBotMode = isFeatureEnabled('ENABLE_CROSS_BOT_MATCHING');
 
     // Do not enqueue duplicates
     const alreadyQueued = await MatchingService.isUserQueued(botId, userId);
@@ -108,7 +109,7 @@ class MatchingService {
   static async matchNextUser(botId, userId, preferences = {}) {
     botId = botId || 'default';
     const keys = require('../utils/redisKeys');
-    const crossBotMode = process.env.ENABLE_CROSS_BOT_MATCHING === 'true';
+    const crossBotMode = isFeatureEnabled('ENABLE_CROSS_BOT_MATCHING');
 
     const userIdStr = userId.toString();
     
@@ -312,7 +313,7 @@ class MatchingService {
   static async dequeueUser(botId, userId) {
     const keys = require('../utils/redisKeys');
     botId = botId || 'default';
-    const crossBotMode = process.env.ENABLE_CROSS_BOT_MATCHING === 'true';
+    const crossBotMode = isFeatureEnabled('ENABLE_CROSS_BOT_MATCHING');
     
     const uid = userId.toString();
 

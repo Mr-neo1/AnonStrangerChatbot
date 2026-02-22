@@ -18,6 +18,14 @@ const Chat = sequelize.define("Chat", {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
   },
+  messageCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  botId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
 }, {
   tableName: 'Chats',
   freezeTableName: true,
@@ -37,7 +45,8 @@ const Chat = sequelize.define("Chat", {
   ]
 });
 
-// Runtime schema sync removed. Use offline migrations to alter production schemas.
+// Runtime schema sync for new columns
+Chat.sync({ alter: true }).catch(err => console.error('Chat sync error:', err.message));
 
 
 module.exports = Chat;

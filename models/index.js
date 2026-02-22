@@ -60,6 +60,14 @@ function setupAssociations() {
   if (!Chat.associations.secondUser) {
     Chat.belongsTo(User, { as: 'secondUser', foreignKey: 'user2' });
   }
+  
+  // ChatRating associations
+  if (!ChatRating.associations.rater) {
+    ChatRating.belongsTo(User, { as: 'rater', foreignKey: 'raterId' });
+  }
+  if (!ChatRating.associations.ratedUser) {
+    ChatRating.belongsTo(User, { as: 'ratedUser', foreignKey: 'ratedUserId' });
+  }
 }
 
 setupAssociations();

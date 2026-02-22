@@ -1380,6 +1380,63 @@ app.post('/api/admin/spy-chat', requireAuth, async (req, res) => {
   }
 });
 
+// Admin join chat - send a message into an active chat
+app.post('/api/admin/join-chat', requireAuth, async (req, res) => {
+  try {
+    const { userId, partnerId, message } = req.body;
+    
+    if (!userId || !message) {
+      return res.status(400).json({ error: 'userId and message required' });
+    }
+    
+    const { getAllBots } = require('./bots');
+    const BotRouter = require('./utils/botRouter');
+    const bots = getAllBots();
+    
+    if (!bots || bots.length === 0) {
+      return res.status(500).json({ error: 'No bot instances available' });
+    }
+    
+    const adminMessage = `👮 *Admin Message:*\n${message}`;
+    
+    // Send to both users in the chat
+    const results = { sentTo: [] };
+    
+    try {
+      await BotRouter.sendMessage(userId, adminMessage, { parse_mode: 'Markdown' });
+      results.sentTo.push(userId);
+    } catch (e) {
+      console.error(`Failed to send admin message to ${userId}:`, e.message);
+    }
+    
+    if (partnerId) {
+      try {
+        await BotRouter.sendMessage(partnerId, adminMessage, { parse_mode: 'Markdown' });
+        results.sentTo.push(partnerId);
+      } catch (e) {
+        console.error(`Failed to send admin message to ${partnerId}:`, e.message);
+      }
+    }
+    
+    // Log audit
+    const AuditService = require('./services/auditService');
+    await AuditService.log({
+      adminId: req.adminId,
+      category: 'chat',
+      action: 'admin_join_message',
+      targetType: 'user',
+      targetId: userId,
+      details: { partnerId, message: message.substring(0, 100) },
+      success: true
+    });
+    
+    res.json({ success: true, sentTo: results.sentTo });
+  } catch (error) {
+    console.error('Admin join chat error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Remove user from search queue
 app.post('/api/admin/quick/remove-from-queue', requireAuth, async (req, res) => {
   try {
@@ -1609,7 +1666,7 @@ const upload = multer({
 
 app.post('/api/admin/broadcast', requireAuth, upload.single('media'), async (req, res) => {
   try {
-    const { message, audience, target, mediaType, botId } = req.body;
+    const { message, audience, target, mediaType, botId, activeDays, minChats } = req.body;
     const actualAudience = audience || target || 'all'; // Support both audience and target
     const mediaFile = req.file;
     
@@ -1624,6 +1681,10 @@ app.post('/api/admin/broadcast', requireAuth, upload.single('media'), async (req
       botId: botId || null, // Filter by specific bot
       meta: { source: 'admin_panel' }
     };
+    
+    // Pass targeting filters
+    if (activeDays) broadcastData.activeDays = parseInt(activeDays);
+    if (minChats) broadcastData.minChats = parseInt(minChats);
     
     // If media is included, add it to broadcast data
     if (mediaFile) {
@@ -4234,7 +4295,11 @@ app.get('/api/admin/feedback', requireAuth, async (req, res) => {
       where,
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
-      offset
+      offset,
+      include: [
+        { model: User, as: 'rater', foreignKey: 'raterId', attributes: ['userId', 'username', 'firstName'], required: false },
+        { model: User, as: 'ratedUser', foreignKey: 'ratedUserId', attributes: ['userId', 'username', 'firstName'], required: false }
+      ]
     });
     
     // Stats

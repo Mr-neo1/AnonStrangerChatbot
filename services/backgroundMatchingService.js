@@ -9,6 +9,8 @@ const { redisClient } = require('../database/redisClient');
 const BotRouter = require('../utils/botRouter');
 const UserCacheService = require('./userCacheService');
 const keyboards = require('../utils/keyboards');
+const { isFeatureEnabled } = require('../config/featureFlags');
+const Chat = require('../models/chatModel');
 
 class BackgroundMatchingService {
   static isRunning = false;
@@ -52,16 +54,18 @@ class BackgroundMatchingService {
    * Run one matching cycle - try to match all queued users
    */
   static async runMatchingCycle() {
-    const crossBotMode = process.env.ENABLE_CROSS_BOT_MATCHING === 'true';
+    const crossBotMode = isFeatureEnabled('ENABLE_CROSS_BOT_MATCHING');
     
     // Get all users in queues
     let queueKeys = [];
     if (crossBotMode) {
       queueKeys = ['queue:vip', 'queue:vip:any', 'queue:free', 'queue:general'];
     } else {
-      // Get bot IDs from config
+      // Get bot IDs dynamically from config
       const keys = require('../utils/redisKeys');
-      const botIds = ['bot_0', 'bot_1', 'bot_2', 'bot_3', 'bot_4', 'default'];
+      const config = require('../config/config');
+      const botIds = config.BOT_TOKENS.map((_, i) => `bot_${i}`);
+      if (!botIds.includes('default')) botIds.push('default');
       for (const botId of botIds) {
         queueKeys.push(
           keys.QUEUE_VIP_KEY(botId),
@@ -119,6 +123,16 @@ class BackgroundMatchingService {
         const PAIR_TTL = 86400;
         await redisClient.setEx('pair:' + userId, PAIR_TTL, String(partnerId));
         await redisClient.setEx('pair:' + partnerId, PAIR_TTL, String(userId));
+        
+        // Create Chat record in database for chat logs & spy-chat
+        try {
+          const chatRecord = await Chat.create({ user1: userId, user2: partnerId, active: true, startedAt: new Date() });
+          // Store chat record ID in Redis for quick lookup
+          await redisClient.set(`chatRecord:${userId}:${partnerId}`, String(chatRecord.id));
+          await redisClient.set(`chatRecord:${partnerId}:${userId}`, String(chatRecord.id));
+        } catch (chatErr) {
+          console.error('Failed to create Chat record:', chatErr.message);
+        }
         
         // Mark as matched
         matched.add(userId);

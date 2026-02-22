@@ -694,8 +694,8 @@
                 <textarea id="broadcastMessage" rows="4" class="input-field" placeholder="Enter your message... (supports HTML)"></textarea>
               </div>
               <div>
-                <label class="block text-sm text-dark-300 mb-2">Image (Optional)</label>
-                <input type="file" id="broadcastImage" accept="image/*" class="input-field">
+                <label class="block text-sm text-dark-300 mb-2">Media (Optional - Image, Video, or Document)</label>
+                <input type="file" id="broadcastImage" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.zip" class="input-field">
               </div>
               <div class="flex gap-3">
                 <button onclick="sendBroadcast()" class="btn-primary px-6 py-2.5 rounded-lg text-white">📢 Send to All (Legacy)</button>
@@ -1865,6 +1865,7 @@
           const actionsHtml = u.status === 'chatting' 
             ? `<div class="flex gap-1">
                 <button onclick="spyChat('${escapeHtml(userId)}', '${escapeHtml(u.partnerId)}')" title="Watch Chat" class="text-purple-400 hover:text-purple-300 text-xs px-1">👁️</button>
+                <button onclick="adminJoinChat('${escapeHtml(userId)}', '${escapeHtml(u.partnerId)}')" title="Send Message" class="text-green-400 hover:text-green-300 text-xs px-1">💬</button>
                 <button onclick="disconnectUserFromChat('${escapeHtml(userId)}')" title="Disconnect" class="text-red-400 hover:text-red-300 text-xs px-1">⛔</button>
                </div>`
             : `<button onclick="removeFromQueue('${escapeHtml(userId)}')" title="Remove from queue" class="text-red-400 hover:text-red-300 text-xs px-1">🗑️</button>`;
@@ -1952,6 +1953,18 @@
       } catch (err) {
         console.error('Spy error:', err);
         toast('Could not fetch chat history', 'error');
+      }
+    }
+    
+    // Admin join chat - send message to both users
+    async function adminJoinChat(userId, partnerId) {
+      const message = prompt('Enter message to send to both users in this chat:');
+      if (!message || !message.trim()) return;
+      try {
+        const data = await api('/join-chat', { method: 'POST', body: { userId, partnerId, message: message.trim() } });
+        toast(`Admin message sent to ${data.sentTo.length} user(s)`, 'success');
+      } catch (err) {
+        toast('Failed to send admin message', 'error');
       }
     }
     
@@ -2505,14 +2518,22 @@
       const target = document.getElementById('broadcastTarget').value;
       const botId = document.getElementById('broadcastBot').value;
       const message = document.getElementById('broadcastMessage').value;
-      if (!message.trim()) { toast('Enter a message', 'error'); return; }
+      const imageFile = document.getElementById('broadcastImage').files[0];
+      if (!message.trim() && !imageFile) { toast('Enter a message or attach media', 'error'); return; }
+      if (!confirm(`Send broadcast to ${target} users?`)) return;
       
       const formData = new FormData();
       formData.append('target', target);
       formData.append('botId', botId);
       formData.append('message', message);
-      const imageFile = document.getElementById('broadcastImage').files[0];
-      if (imageFile) formData.append('media', imageFile);
+      if (imageFile) {
+        formData.append('media', imageFile);
+        // Auto-detect media type
+        const mimeType = imageFile.type || '';
+        if (mimeType.startsWith('image/')) formData.append('mediaType', 'photo');
+        else if (mimeType.startsWith('video/')) formData.append('mediaType', 'video');
+        else formData.append('mediaType', 'document');
+      }
       
       try {
         const res = await fetch('/api/admin/broadcast', {
@@ -2522,7 +2543,8 @@
         });
         const data = await res.json();
         const botLabel = botId === 'all' ? 'all bots' : botId;
-        toast(`Broadcast queued for ${target} users on ${botLabel}`, 'success');
+        const mediaLabel = imageFile ? ` (with ${imageFile.type.split('/')[0]})` : '';
+        toast(`Broadcast queued for ${target} users on ${botLabel}${mediaLabel}`, 'success');
         document.getElementById('broadcastMessage').value = '';
         document.getElementById('broadcastImage').value = '';
       } catch (err) { toast('Broadcast failed', 'error'); }
@@ -3982,21 +4004,38 @@
 
     async function sendTargetedBroadcast() {
       const message = document.getElementById('broadcastMessage').value;
-      if (!message) return toast('Message is required', 'error');
+      const imageFile = document.getElementById('broadcastImage').files[0];
+      if (!message && !imageFile) return toast('Message or media is required', 'error');
       if (!confirm('Send targeted broadcast?')) return;
       
       try {
-        const data = await api('/broadcast/targeted', {
+        const formData = new FormData();
+        formData.append('target', document.getElementById('broadcastTarget').value);
+        formData.append('botId', document.getElementById('broadcastBot').value);
+        formData.append('message', message || '');
+        if (imageFile) {
+          formData.append('media', imageFile);
+          const mimeType = imageFile.type || '';
+          if (mimeType.startsWith('image/')) formData.append('mediaType', 'photo');
+          else if (mimeType.startsWith('video/')) formData.append('mediaType', 'video');
+          else formData.append('mediaType', 'document');
+        }
+        const activeDays = document.getElementById('broadcastActiveDays').value;
+        const minChats = document.getElementById('broadcastMinChats').value;
+        if (activeDays) formData.append('activeDays', activeDays);
+        if (minChats) formData.append('minChats', minChats);
+        
+        const res = await fetch('/api/admin/broadcast', {
           method: 'POST',
-          body: {
-            message,
-            target: document.getElementById('broadcastTarget').value,
-            botId: document.getElementById('broadcastBot').value,
-            activeDays: document.getElementById('broadcastActiveDays').value,
-            minChats: document.getElementById('broadcastMinChats').value
-          }
+          headers: { 'X-Admin-Token': authToken },
+          body: formData
         });
-        toast(`Broadcast sent: ${data.sent} delivered, ${data.failed} failed`, 'success');
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        const mediaLabel = imageFile ? ` (with ${imageFile.type.split('/')[0]})` : '';
+        toast(`Targeted broadcast queued${mediaLabel}`, 'success');
+        document.getElementById('broadcastMessage').value = '';
+        document.getElementById('broadcastImage').value = '';
       } catch (err) { toast(err.message, 'error'); }
     }
 
@@ -4210,9 +4249,11 @@
         document.getElementById('feedbackBody').innerHTML = data.ratings.map(r => {
           const typeColors = { positive: 'text-green-400', negative: 'text-red-400', skipped: 'text-dark-400' };
           const typeIcons = { positive: '👍', negative: '👎', skipped: '⏭️' };
+          const raterName = r.rater ? (r.rater.username ? '@' + r.rater.username : r.rater.firstName || r.raterId) : r.raterId;
+          const ratedName = r.ratedUser ? (r.ratedUser.username ? '@' + r.ratedUser.username : r.ratedUser.firstName || r.ratedUserId) : r.ratedUserId;
           return `<tr class="hover:bg-dark-800/50 border-b border-dark-800/50">
-            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.raterId}')">${r.raterId}</span></td>
-            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.ratedUserId}')">${r.ratedUserId}</span></td>
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.raterId}')">${raterName}</span></td>
+            <td class="px-4 py-3 text-sm"><span class="cursor-pointer text-blue-400 hover:underline" onclick="viewUserProfile('${r.ratedUserId}')">${ratedName}</span></td>
             <td class="px-4 py-3"><span class="${typeColors[r.ratingType] || ''}">${typeIcons[r.ratingType] || ''} ${r.ratingType}</span></td>
             <td class="px-4 py-3 text-sm">${r.reportReason !== 'none' ? '<span class="text-yellow-400">⚠️ ' + r.reportReason + '</span>' : '-'}</td>
             <td class="px-4 py-3 text-xs text-dark-400">${new Date(r.createdAt).toLocaleString()}</td>

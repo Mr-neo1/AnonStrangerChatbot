@@ -74,6 +74,36 @@ class ReferralService {
     return postActions;
   }
 
+  // Process referral milestones on referral acceptance (grant VIP days every 5 referrals)
+  static async processReferralMilestones(inviterId) {
+    try {
+      const ConfigService = require('./configService');
+      const referralVipDays = await ConfigService.get('referral_vip_days', 15);
+      
+      // Count accepted referrals for inviter
+      const count = await Referral.count({ where: { inviterId, status: 'accepted' } });
+      // For every 5 referrals grant VIP days
+      const grants = Math.floor(count / 5);
+      
+      // Count how many milestone rewards previously granted
+      const prevMilestoneRewards = await AffiliateReward.count({ 
+        where: { userId: inviterId, source: 'referral_milestone' } 
+      });
+      const milestoneGrants = Math.max(0, grants - prevMilestoneRewards);
+      if (milestoneGrants > 0) {
+        const daysToGrant = milestoneGrants * referralVipDays;
+        await AffiliateReward.create({ userId: inviterId, vipDaysGranted: daysToGrant, source: 'referral_milestone' });
+        const expiry = await VipService.activateVip(inviterId, daysToGrant, { source: 'referral' });
+        if (expiry) {
+          try { await VipService.setRedisVip(inviterId, expiry); } catch (err) { console.error('Referral milestone VIP error:', err); }
+        }
+        console.log(`🎯 Referral milestone: inviter ${inviterId} earned ${daysToGrant} VIP days (${count} total referrals)`);
+      }
+    } catch (err) {
+      console.error('processReferralMilestones error:', err);
+    }
+  }
+
   // Accept any pending referrals when an invited user completes /start
   static async acceptPendingReferrals(invitedId) {
     try {

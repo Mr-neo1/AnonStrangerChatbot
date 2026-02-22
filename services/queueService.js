@@ -58,7 +58,7 @@ function initMemoryQueue() {
 
 // Process broadcast - send messages to users
 async function processBroadcast(data) {
-  const { message, audience = 'all', botId = null, meta = {} } = data;
+  const { message, audience = 'all', botId = null, meta = {}, activeDays, minChats } = data;
   const { User, VipSubscription } = require('../models');
   const { Op } = require('sequelize');
   const { getAllBots } = require('../bots');
@@ -104,6 +104,15 @@ async function processBroadcast(data) {
     where.lastActiveAt = { [Op.gte]: sevenDaysAgo };
   }
   
+  // Apply optional targeting filters
+  if (activeDays && activeDays > 0) {
+    const daysAgo = new Date(Date.now() - activeDays * 24 * 60 * 60 * 1000);
+    where.lastActiveAt = { ...(where.lastActiveAt || {}), [Op.gte]: daysAgo };
+  }
+  if (minChats && minChats > 0) {
+    where.totalChats = { [Op.gte]: minChats };
+  }
+  
   // Get users (paginated to avoid memory issues)
   const batchSize = 20; // Reduced from 100 for better rate limiting
   let offset = 0;
@@ -127,7 +136,7 @@ async function processBroadcast(data) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         if (mediaBuffer && data.media) {
-          const caption = message ? `📢 ${message}` : '';
+          const caption = message || '';
           const fileOptions = { 
             filename: data.media.originalname || `broadcast_${Date.now()}`,
             contentType: data.media.mimetype
@@ -137,11 +146,13 @@ async function processBroadcast(data) {
             await bot.sendPhoto(user.telegramId, mediaBuffer, { caption }, fileOptions);
           } else if (data.media.type === 'video') {
             await bot.sendVideo(user.telegramId, mediaBuffer, { caption }, fileOptions);
+          } else if (data.media.type === 'audio') {
+            await bot.sendAudio(user.telegramId, mediaBuffer, { caption }, fileOptions);
           } else {
             await bot.sendDocument(user.telegramId, mediaBuffer, { caption }, fileOptions);
           }
-        } else {
-          await bot.sendMessage(user.telegramId, `📢 ${message}`);
+        } else if (message) {
+          await bot.sendMessage(user.telegramId, message, { parse_mode: 'HTML' });
         }
         return { success: true };
       } catch (err) {
@@ -236,9 +247,9 @@ function getQueue() {
   return queueImpl;
 }
 
-async function enqueueBroadcast({ message, audience = 'all', botId = null, meta = {}, media = null }) {
+async function enqueueBroadcast({ message, audience = 'all', botId = null, meta = {}, media = null, activeDays, minChats }) {
   const q = getQueue();
-  const payload = { message, audience, botId, meta, media, requestedBy: meta.requestedBy || 'admin' };
+  const payload = { message, audience, botId, meta, media, activeDays, minChats, requestedBy: meta.requestedBy || 'admin' };
   const job = await q.add(payload);
   return { id: job.id, impl: implType };
 }

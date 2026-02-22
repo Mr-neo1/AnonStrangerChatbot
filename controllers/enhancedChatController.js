@@ -1,4 +1,5 @@
 const User = require("../models/userModel");
+const Chat = require("../models/chatModel");
 const { checkUserJoined } = require("../middlewares/authMiddleware");
 const enhancedMessages = require("../utils/enhancedMessages");
 const MessagesService = require("../services/messagesService");
@@ -522,12 +523,19 @@ class EnhancedChatController {
         }
 
         // Handle referral link: /start ref_<inviterId>
-        if (startParam.startsWith('ref_') && created) {
+        // Allow both new AND existing users to be referred (createReferral prevents duplicates)
+        if (startParam.startsWith('ref_')) {
           const inviterId = startParam.replace('ref_', '');
           if (inviterId && inviterId !== String(userId)) {
             try {
-              await ReferralService.createReferral(parseInt(inviterId), userId);
-              console.log(`📎 Referral recorded: ${inviterId} -> ${userId}`);
+              const referral = await ReferralService.createReferral(parseInt(inviterId), userId);
+              if (referral) {
+                console.log(`📎 Referral recorded: ${inviterId} -> ${userId}`);
+                // Immediately accept the referral
+                await ReferralService.acceptPendingReferrals(userId);
+                // Grant milestone rewards on referral acceptance
+                await ReferralService.processReferralMilestones(parseInt(inviterId));
+              }
             } catch (err) {
               console.error('Error recording referral:', err.message);
             }
@@ -1697,6 +1705,17 @@ class EnhancedChatController {
           // Use BotRouter to send to correct bot instance (cross-bot support)
           await BotRouter.sendMessage(partnerId, text);
           
+          // Cache message for spy-chat (last 50 messages, expire after 24h)
+          try {
+            const chatRecordId = await redisClient.get(`chatRecord:${chatId}:${partnerId}`).catch(() => null);
+            if (chatRecordId) {
+              const msgData = JSON.stringify({ senderId: chatId, content: text, timestamp: Date.now() });
+              await redisClient.rPush(`chat:messages:${chatRecordId}`, msgData);
+              await redisClient.lTrim(`chat:messages:${chatRecordId}`, -50, -1);
+              await redisClient.expire(`chat:messages:${chatRecordId}`, 86400);
+            }
+          } catch (cacheErr) { /* ignore cache errors */ }
+          
           // Log to file only
           require('../utils/logger').debug('Message forwarded', { from: chatId, to: partnerId, text: text.substring(0, 50) });
         } catch (error) {
@@ -1758,6 +1777,15 @@ class EnhancedChatController {
       const PAIR_TTL = 86400;
       await redisClient.setEx('pair:' + chatId, PAIR_TTL, String(partnerId));
       await redisClient.setEx('pair:' + partnerId, PAIR_TTL, String(chatId));
+
+      // Create Chat record in database for chat logs & spy-chat
+      try {
+        const chatRecord = await Chat.create({ user1: chatId, user2: partnerId, active: true, startedAt: new Date() });
+        await redisClient.set(`chatRecord:${chatId}:${partnerId}`, String(chatRecord.id));
+        await redisClient.set(`chatRecord:${partnerId}:${chatId}`, String(chatRecord.id));
+      } catch (chatErr) {
+        console.error('Failed to create Chat record:', chatErr.message);
+      }
 
       // mark recent partners for 20 minutes (prevent re-matching too quickly)
       await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
@@ -1855,6 +1883,15 @@ class EnhancedChatController {
           const PAIR_TTL = 86400;
           await redisClient.setEx('pair:' + chatId, PAIR_TTL, String(partnerId));
           await redisClient.setEx('pair:' + partnerId, PAIR_TTL, String(chatId));
+          
+          // Create Chat record in database for chat logs & spy-chat
+          try {
+            const chatRecord = await Chat.create({ user1: chatId, user2: partnerId, active: true, startedAt: new Date() });
+            await redisClient.set(`chatRecord:${chatId}:${partnerId}`, String(chatRecord.id));
+            await redisClient.set(`chatRecord:${partnerId}:${chatId}`, String(chatRecord.id));
+          } catch (chatErr) {
+            console.error('Failed to create Chat record:', chatErr.message);
+          }
           
           // Mark recent partners
           await redisClient.lPush(`user:recentPartners:${chatId}`, String(partnerId));
@@ -2083,6 +2120,32 @@ class EnhancedChatController {
       
       // Execute cleanup in parallel
       await Promise.all(cleanupPromises);
+
+      // Mark Chat record as ended in database
+      if (partnerId) {
+        try {
+          const { Op } = require('sequelize');
+          await Chat.update({ active: false }, {
+            where: {
+              active: true,
+              [Op.or]: [
+                { user1: String(chatId), user2: String(partnerId) },
+                { user1: String(partnerId), user2: String(chatId) }
+              ]
+            }
+          });
+          // Cleanup Redis chat record keys
+          await redisClient.del(`chatRecord:${chatId}:${partnerId}`).catch(() => {});
+          await redisClient.del(`chatRecord:${partnerId}:${chatId}`).catch(() => {});
+          // Cleanup cached messages
+          const chatRecordId = await redisClient.get(`chatRecord:${chatId}:${partnerId}`).catch(() => null);
+          if (chatRecordId) {
+            await redisClient.del(`chat:messages:${chatRecordId}`).catch(() => {});
+          }
+        } catch (chatErr) {
+          console.error('Failed to update Chat record:', chatErr.message);
+        }
+      }
 
       // BACKGROUND: Lock cleanup and abuse recording (fire and forget)
       if (isFeatureEnabled('ENABLE_LOCK_CHAT')) {
